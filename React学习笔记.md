@@ -637,7 +637,7 @@ root.render(
     > //通过把函数当作对象，设置静态的私有属性方法，来给其设置属性的规则
     > DemoOne.defaultProps = {
     >     x:0,
-    >     ...
+    >     
     > }
     > //使用插件prop-types进行规则校验
     > import PropTypes from 'prop-types'
@@ -654,4 +654,313 @@ root.render(
     > 
 
 ### 6、插槽机制
+
+基于传递属性的方式把相关信息传递给子组件，假如组件底部“可能”有按钮，根据需求判断需要还是不需要：
+
+- 解决1，我们可以需要的按钮，再子组件中写死，后期基于传递进来的属性，判断按钮的显示隐藏
+
+- 解决2，我们也可以把按钮的区域预留出来，但是内容不写，内容让调用组件的时候，把东西传进来
+
+  -> 基于`props.children`获取传递的子节点信息，封装组件的时候预留插槽位置，里面的内容不用写，基于双闭合调用方式，把插槽信息，传递给组件，组件内部进行渲染即可，
+
+  -> 和属性一样，都是想办法，让组件具备更强的复用性，传递数据值用属性，传递HTML结构，用插槽。
+
+**默认插槽**
+
+```jsx
+// ./src/index.jsx
+
+import React from 'react';
+import ReactDOM from 'react-dom/client'
+import DemoOne from '@views/DemoOne'
+
+const root = ReactDOM.creatRoot(document.getElementById('root'));
+root.render(
+	<>
+    	<DemoOne title="react标题一" x={10}>
+        	<span>字符串A</span>
+            <span>字符串B</span>
+    	</DemoOne>
+    
+    	<DemoOne title="react标题二">
+        	<span>字符串C</span>
+    	</DemoOne>
+    
+    	<DemoOne title="react标题三" />
+    </>
+)
+```
+
+
+
+```jsx
+//./src/views/DemoOne.jsx
+import PropTypes from 'Prop-types'
+import React from 'react'
+
+const DemoOne = function DemoOne(props){
+	let { title,x,children } = props;
+	//要对children的类型做处理
+	//if(!children){
+	//	children=[];
+	//}else if(!Array.isArray(children)){
+	//	children = [ children ]
+	//}
+    //可以基于React.children对象提供的方法，对props.children做处理：count/forEach/map/toArray...
+    //好处：在这些方法的内部，已经对children的各种形式做了处理
+	children = React.Children.toArray(children)
+    
+	return (
+        <div className="demo-box">
+            {children[0]}
+            <br/>
+
+            <h2 className="title">{ title }</h2>
+            <span>{ x }</span>
+
+            <br/>
+            {children[1]}
+		</div>
+	)
+}
+export default DemoOme
+```
+
+**具名插槽**
+
+```jsx
+// ./src/index.jsx
+
+import React from 'react';
+import ReactDOM from 'react-dom/client'
+import DemoOne from '@views/DemoOne'
+
+const root = ReactDOM.creatRoot(document.getElementById('root'));
+root.render(
+	<>
+    	<DemoOne title="react标题一" x={10}>
+        //1、这里指定slot的属性名字
+        	<span slot='header'>字符串A</span>
+            <span slot='footer'>字符串B</span>
+        	<span>字符串C</span>
+    	</DemoOne>
+    </>
+)
+```
+
+```jsx
+//./src/views/DemoOne.jsx
+import PropTypes from 'Prop-types'
+import React from 'react'
+
+const DemoOne = function DemoOne(props){
+    //**这里传进来的children是已经被react编译成react-virturaDOM对象了，而不是HTML标签
+	let { title,x,children } = props;
+    //2、通过React.children自带的方法把子节点转化为列表结构
+	children = React.Children.toArray(children)
+    //3、创建插槽容器，接收分类列表
+    let headerSlot = [], 
+        footerSlot = [],
+        defaultSlot = [];
+    //4、对children进行筛选，装入3中的容器
+    children.filter(child => {
+        //5、将slot属性通过子列表的props属性解构出来
+        let {slot} = child.props
+        if (slot === 'header'){
+            headerSlot.push(child)
+        }else if(slot === 'footer'){
+            footerSlot.push(child)
+        }else {
+            defaultSlot.push(child)
+        }
+        
+    })
+    
+	return (
+        <div className="demo-box">
+            {headerSlot}
+            <br/>
+
+            <h2 className="title">{ title }</h2>
+            <span>{ x }</span>
+            {defaultSlot}
+
+            <br/>
+            {footerSlot}
+		</div>
+	)
+}
+export default DemoOme
+```
+
+### 7、封装组件/函数和类组件
+
+```jsx
+// ./src/index.jsx
+import React from 'react';
+import ReactDOM from 'react-dom/client'
+import Dialog from './components/Dialog'
+
+const root = ReactDOM.creatRoot(document.getElementById('root'));
+root.render(
+	<>
+    	<Dialog title='友情提示' content='大家出门做好个人防护'/>
+    	<Dialog content="我们一定要好好学React！！">
+        	<button>确定</button>
+        	<button>不确定</button>
+    	</Dialog>
+    </>
+)
+
+```
+
+
+
+```jsx
+// ./src/components/Dialog.jsx
+import PropType from 'Prop-types'
+import React from 'react'
+const Dialog = function Dialog(props){
+    let { title, content, children}
+    children = React.children.toArray(children)
+    return(
+    	<div className="dialog-box">
+            <div className="header" >
+                <h2 className='title'>{ title }</h2>
+                <span>x</span>
+            </div>
+            <div className="main">
+                { content }
+            </div>
+            {children.length>0?<div className= "main">{ children }</div>: null}
+        </div>
+    )
+}
+// 属性校验规则
+//设置默认值
+Dialog.defaultProps = {
+    title:'温馨提示'
+}
+//设置类型
+Dialog.proTypes= {
+    title.PropTypes.string,
+    content.PropTypes.string.isRequired
+}
+export default Dialog
+```
+
+- 静态组件（**函数组件**）
+
+  ​	函数组件是静态组件，第一渲染组件，把函数执行，产生一个私有的上下文，把解析出来的`props`（含`children`）传递进来，但是冻结了，对函数返回的`JSX`元素(`virtualDOM`)进行渲染。
+
+  ​	当我们点击按钮的时候，会把绑定的小函数执行，执行后会修改上级上下文中的变量，私有变化值发生了变化，但是视图不会更新，函数组件第一次渲染完毕后，组件中的内容，不会根据组件内的某些操作，在进行更新，**除非在父组件中，重新调用这个函数组件**。
+
+  ```jsx
+  // ./src/index.jsx
+  
+  import React from 'react';
+  import ReactDOM from 'react-dom/client'
+  import Vote from './views/Vote'
+  
+  const root = ReactDOM.creatRoot(document.getElementById('root'));
+  root.render(
+  	<>
+  		<Vote title="react其实还是很好学的！"/>
+      </>
+  )
+  ```
+
+  
+
+  ```jsx
+  //./src/views/Vote.jsx
+  
+  const Vote =function Vote(props){
+      let { title } = props
+      let supNum = 10
+      let oppNum = 5
+      return(
+      	<div className="vote-box">
+              <div className="header">
+                  <h2 className="title">{ title }</h2>
+                  <span>{ supNum + oppNum }</span>
+              </div>
+              <div className="main">
+                  <p>支持人数：{ supNum }人</p>
+                  <p>反对人数：{ oppNum }人</p>
+              </div>
+              <div className="footer">
+                  <button onClick={()=>supNum++}>支持</button>
+                  <button onClick={()=>oppNum++}>不支持</button>
+              </div>
+          </div>
+      )
+  }
+  
+  export default Vote
+  ```
+
+  
+
+- 动态组件（**类组件**）
+
+  ​	真实项目中，有这样的需求，第一次渲染后就不会在变化了，可以使用**函数组件**，但是大部分需求，都需要在第一次渲染完毕后，基于组件内部的某些操作，让组件可以更新，以此呈现出不同的效果！，这就是**动态组件**（类组件或者Hooks组件）
+
+  ​	我们需要“类组件”来构建动态组件
+
+  ```jsx
+  // ./src/index.jsx
+  
+  import React from 'react';
+  import ReactDOM from 'react-dom/client'
+  import Vote from './views/Vote'
+  
+  const root = ReactDOM.creatRoot(document.getElementById('root'));
+  root.render(
+  	<>
+  		<Vote title="react其实还是很好学的！"/>
+      </>
+  )
+  ```
+
+  ```jsx
+  //./src/views/Vote.jsx
+  //创建类组件
+  	//创建一个构造函数（类），要求必须继承React.Component/PuerComponent这个类，我们习惯用ES6的class类继承，必须给当前类设置一个render的方法，放在其原型上：在render方法上，返回需要渲染的视图。
+  
+  import React, { Component, PureComponent } from 'react'
+  //这里的{}并不是解构赋值，而是React中确切的导出的函数，可以通过{}拿到
+  
+  //es5继承组合式模式
+  //function example(){
+  //	React.Component.call(this)
+  //	this.state = { x:10, y:20 }
+  //}
+  //Object.setProtoTypeOf(example.prototype, React.Component.prototype)
+  //example.prototype.sum = function () {}
+  //es6继承模式
+  class Vote extends React.compontent {
+      render(){
+          return(
+      	<div className="vote-box">
+              <div className="header">
+                  <h2 className="title">标题</h2>
+                  <span>15人</span>
+              </div>
+              <div className="main">
+                  <p>支持人数：10人</p>
+                  <p>反对人数：15人</p>
+              </div>
+              <div className="footer">
+                  <button onClick={}>支持</button>
+                  <button onClick={}>不支持</button>
+              </div>
+          </div>
+      )
+      }
+  }
+  export default Vote
+  ```
+
+  
 
