@@ -1288,4 +1288,122 @@ export default Vote
 
     这个周期函数是不安全的，该周期函数完毕后，下一个钩子函数为`shouldComponentUpdate()`
 
-### 10、`PureComponent`机制
+### 10、`PureComponent`组件
+
+```jsx
+// ./src/index.jsx
+
+import React from 'react';
+import ReactDOM from 'react-dom/client'
+import Demo from './views/Demo'
+
+const root = ReactDOM.creatRoot(document.getElementById('root'));
+root.render(
+	<>
+		<Demo />
+    </>
+)
+```
+
+`React.Component`VS`React.PureComponent`
+
+```jsx
+//./src/view/Demo.jsx
+import React from 'react'
+
+//class Demo extends React.Component {  //这里使用React.PureComponent，视图不会更新
+class Demo extends React.PureComponent
+    state = {
+        arr:[10, 20, 30]
+    }
+    render(){
+        let { arr } = this.state
+        return (
+        	<div>
+                {arr.map((item,index)=>{
+                    return(
+                        <span key={ index } style={{
+                                display:'inline-block',
+                                width:100,
+                                height:100,
+                                background:'pink',
+                                marginRight: 10
+                            }}>{ item }</span>
+                    )
+                })}
+                <br />
+                <button onClick={()=>{
+                        arr.push(40)
+                        console.log(arr)  //[10,20,30,40]
+                        this.setState({
+                            arr: [...arr]//我们让arr状态值改为一个新数组（堆地址不一样），堆地址一样，不能跳过shouldCompontentUpdate,从而无法更新制图，只有把arr变成一个地址不一样的数组，才能驱动视图更新。
+                        })
+                        //this.forceUpdate()//pureCompontent组件可以采用这个方法跳过shouldCompontentUpdate的检查
+                    }}>新增Span</button>
+            </div>
+        )
+    }
+	//这个是PureComponent添加的shouldComponetUpdate的比较原理
+	//shouldComponentUpdate(nextProps, nextState) {
+        //let { props, state } = this;
+        //props/state: 修改之前的属性状态
+        //nextProps/nextState: 修改之后的属性状态
+        //return !shallowEqual(props,nextProps) || !shallowEqual(state,nextState)
+    //}
+}
+
+export default Demo
+
+```
+
+> [!IMPORTANT]
+>
+> `React.PureComponent`和`React.Component`的区别
+>
+> `React.PureComponent`会给组件默认加一个`shouldComponentUpdate()`函数，在此周期函数中，它对新老的属性和状态，会做一个浅比较，如果经过浅比较，发现属性和状态没有改变，则返回`false`，也就是不继续更新组件，有变化才去更新！
+>
+> ```js
+> //浅比较
+> let obj = { z: 20 } //obj -> 0x001
+> let objA = { x: 10; y: obj;//y -> 0x001
+>             arr: [10, 20, 30] 
+> 			}//arr -> 0x002
+> obj.n = 1000
+> let objB = { x: 10; y: obj;//y -> 0x001 ，此时堆内存中多了n:1000,objB和objA虽然内容不一样，但是堆地址相同
+>             arr: [10, 20, 30] 
+> 			}//arr -> 0x003
+> //浅比较只比较对象的第一集，对于深层次的内容，不会再进行比较
+> //迭代objA      迭代objB       对比两个属性值
+> //x -> 10       x-> 10         一样
+> //y -> 0x001    y-> 0x001      一样
+> //arr -> 0x002  arr -> 0x003   不一样（即便两个数组长的一样，但堆中地址不一样）
+>             
+> //先比较对象长度，如果长度不一样，那么两个对象肯定不一致！
+> //如果对象长度相等，再进行迭代比较
+>     
+> //利用isObject方法判断是否为对象
+> const isObject = function isObject(obj) {
+>     return obj !==null && /^(object|function$/.test(typeof obj))
+> }
+> //浅对比的方法
+> const shallowEqual = function shallowEqual(objA,objB){
+>     if( !isObject(objA) || !isObject(objB) ) return false;
+>     if( objA === objB ) return true;
+>    	//先比较长度
+>     let keysA =Reflect.ownKeys(objA);
+>     let keysB = Reflect.ownKeys(objB);
+>     if (keysA.length !== keysB.length) return false;
+>     //数量一致，再逐一比较内部的属性
+>     for(let i=0 ; i<keysA.length; i++){
+>         let key = keysA[i]
+>         //如果一个对象中有这个成员，一个对象中没有，或者，都有这个成员，但成员值不一样，都应该判断为不相同
+>         if（objB.hasOwnProperty(key) || !Object(objA[key],objB[key])）return false
+>     }
+>     
+> }
+> //Object.is(NaN,NaN) //true
+> //NaN === NaN  //false
+> //hasOwnProperty() 可枚举属性存在检查
+> ```
+
+### 11、Ref的相关操作
