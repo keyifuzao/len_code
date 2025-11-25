@@ -962,5 +962,330 @@ export default Dialog
   export default Vote
   ```
 
-  
 
+### 8、`ES6`类语法回顾
+
+```js
+class Parent {
+    //constructor执行的是new 实例的构造函数(需要接受传递进来的实参信息，才需要设置constructor)
+    constructor(x,y){
+        //this 就是指向的就是创建的实例
+        console.log(x,y)
+        this.total = x + y
+        this.getNum()
+    }
+    num = 200 //等价于 this.num =2000 给实例的私有属性
+    getNum (){
+        //这样是给Parent.prototype添加公共方法，且不可枚举
+    }
+    getNum = function(){
+		//这样是给实例增加私有属性
+    }
+    getNum = () => {
+        //箭头函数没有自己的this，所用到的this是宿主环境中的
+        //箭头函数的this，指向的是实例 Parent
+    }
+    static average(){
+        //把构造函数当作一个普通对象，为其设置静态的私有属性方法，外部可以直接调用Parent.average()，不需要通过原型，不可枚举
+    }
+    
+    static avg = 1000
+    	//把属性当作私有属性
+}
+
+Parent.prototype.y = 2000; //在外部手动给构造函数原生上设置公共的属性
+let p = new Parent(10,20)
+
+============================================================================================================
+
+class Parent extent React.Component{
+    //基于extend 实现继承
+    //首先基于call继承，React.Component.call(this) //this ->  Parent类的实例p
+    	//function Component(props, context, updater){...}
+    	//给创建的实例p设置四个私有属性：props/context/refs/updater
+    //其次再基于原型继承，Parent.prototype._proto_ === React.Component.prototype
+    	//实例 -> Parent.prototype -> React.Component.prototype -> Object.prototype
+    	//实例除了具备Parent.prototype的方法，还具备React.Component.prototype原型上提供的方法
+    //最后只要自己设置了constructor，则内部第一句一定要执行super()
+    constructor(n,m){
+        super()//等价于React.Component.call(this)
+    }
+    x = 100
+    get(){
+    }
+}
+
+let p = new Parent(10,20)
+console.log(p)
+```
+
+### 9、动静组件/组件更新机制
+
+组件函数是静态组件：
+
+​	组件第一次渲染完毕后，无法基于内部的某些操作让组件更新，但是，如果调用它的父组件更新了，那么相关的子组件也一定会更新，可能传递了最新的属性值进来，函数组件只具备属性，其他状态几乎没有，函数组件的优势，比类组件处理的机制简单，这样导致函数组件的渲染速度比类组件更快！
+
+组件函数是动态组件：
+
+​	组件在第一次渲染之后，除了父组件触发更新以外，我们可以通过`this.setState`修改状态或者`this.forceUpdate`等方式，让组件实现自更新，类组件具备：属性、状态、周期函数、ref...几乎组件应该有的东西它都具备，类组件比函数组件渲染速度慢，但是功能强大
+
+真实项目中，我们需要根据需求，选择对应的组件
+
+```jsx
+// ./src/index.jsx
+
+import React from 'react';
+import ReactDOM from 'react-dom/client'
+import Vote from './views/Vote'
+
+const root = ReactDOM.creatRoot(document.getElementById('root'));
+root.render(
+	<>
+		<Vote title="react其实还是很好学的！"/>
+    </>
+)
+
+//相当于执行：React.createElement(Vote, {title: 'React其实还是很好学的！'})；
+//执行后返回结构：
+//{
+//    $$type:type,
+//    props: {
+//        title: 'React其实还是很好学的！'
+//    }
+//}
+```
+
+> [!IMPORTANT]
+>
+> 编译逻辑：
+>
+> `render()`函数在渲染的时候，如果`type`是
+>
+> - 字符串：创建一个标签
+>
+> - 普通函数：把函数执行，并且把`props`传递给函数
+>
+> - 构造函数：把构造函数基于`new`执行，创建一个实例，然后把解析出来的`props`传递过去
+>
+>   例如：`new Vote({title: 'React其实还是很好学的！'})`
+>
+>   - 每调用一次类组件，都是创建一个单独的实例，实例与实例之间不互相影响
+>   - 把类组件中编写的`render()`函数执行，把返回的`jsx`（`virtualDOM`）当作试图进行渲染
+>
+>   
+
+```jsx
+//./src/views/Vote.jsx
+import React, { Component, PureComponent } from 'react'
+class Vote extends React.compontent {
+    static this.defaultProps = {
+        //设置规则校验
+    };
+	static propTypes = {
+        //设置数据类型
+        title:PropTypes.string.isRequired;
+        num:PropTypes.number
+    }
+    
+    //constructor(props){  //一般不构建constructor，除非传入参数需要处理
+    //    super(props)
+        //this.state={}//添加state对象，如果此处不加，render()函数中也会有state属性，返回值是null
+    }
+	//这里consturctor函数就是实例，通过props属性传入，super函数代表React.compotent函数，React.compotent函数源码是
+	//function Component(props, context, updater){
+    //    this.props = props
+    //    this.context = context
+    //    this.refs = emptyObject
+    //    this.updater = updater || ReactNoopUpdateQueue
+    //}
+	//如果props不传入super组件，只是super组件运行了以下，并没有将props属性挂载到super里面，那么consturctor第一次运行的收就不会挂载到函数里面，如果super()里面添加了props，那么类函数第一次就可以将挂载到super函数中的props挂载到自身，从而自身可以使用属性
+    state = {
+        supNum: 10;
+        oppNum: 5;
+    }
+	//**1、第一次渲染前，钩子函数启用
+    UNSAFE_componentWillMount(){
+        console.log('在组件第一次渲染之前调用')  //这里的钩子函数，如果不加UNSAFE标识，会抛出黄色警告，因为该方法准备被弃用，是一个不安全的钩子
+    }
+	//**2、第一次渲染中，render函数启用
+    render(){
+        let {title} = this.props
+        let { supNum, oppNum} = this.state
+        return(
+    	<div className="vote-box">
+            <div className="header">
+                <h2 className="title">{title}</h2>
+                <span>{ supNum + oppNum }人</span>
+            </div>
+            <div className="main">
+                <p>支持人数：{ supNum }人</p>
+                <p>反对人数：{ oppNum }人</p>
+            </div>
+            <div className="footer">
+                <button onClick={()=>{
+                        this.setState({
+                            supNum++		//即修改数据，又更新视图
+                        })
+                    }}>支持</button>
+                <button onClick={
+                        this.state.oppNum++
+                        this.forceUpdate()  //强制更新，
+                    }>不支持</button>
+            </div>
+        </div>
+    	)      
+		//**3、第一次渲染后，钩子函数启用
+        componentDidMount(){
+            console.log('在组件第一次渲染结束调用')
+        }
+        //4、接收最新属性之前
+        UNSAFE_componentWillReceiveProps(nextProps){
+            console.log(this.props,nextProps)
+        }
+        //**5、组件函数准备启用
+        shouldConmpontUpdate(nextProps,nextState){
+            //nextState：存储要修改的最新状态
+            //this.state:存储的还是修改前的状态
+            console.log('在组件渲染前调用')
+            console.log(this.state, nextState)
+            
+            //此周期函数需要返回true/false
+            //true代表允许更新，会继续执行下一步操作，false代表不允许更新，接下来啥也不处理
+            return true
+        }
+        //**6、组件将要更新函数钩子启用
+        UNSAFE_CompontentWillUpdate(nextProps,nextState){
+            //nextState：存储要修改的最新状态
+            //this.state:存储的还是修改前的状态
+            console.log('在组件渲染时调用')
+            console.log(this.state, nextState)
+            //此函数也是不安全的周期函数，将来有被移除的可能性
+        }
+        //**7、组件更新完毕，再一次调用渲染结束的钩子函数
+        componentDidUpdate(){
+            console.log('在组件更新渲染结束调用')
+        }
+        componentWillUnmount(){
+            console.log('组件销毁之前')
+        }
+    }
+}
+export default Vote
+```
+
+> [!IMPORTANT]
+>
+> 从调用类组件 `new Vote({...})`开始，类组件内部发生的事情
+>
+> - 属性的初始化
+>   - 方法一：利用`constructor(props){super(props)}`通过实例接收`props`，这样做可以把传递来的属性挂载到`this`实例上
+>   - 方法二：不再`constructor`上处理，或者不构建`constructor`函数，在`constructor`处理完毕后，内部也会把传递的`props`挂载到实例上,所以在其他函数上，只要保证`this`是实例，就可以基于`this.props`获取传递的属性，需要注意，`this.props`获得的属性对象是冻结的，只读属性
+>   
+> - 设置规则校验
+>
+> - 初始化状态
+>
+>   - 状态：后期修改状态，可以触发视图的更新，需要手动初始化，如果我们没有去做相关的处理，则默认会往实例挂载一个`state`，初始值为`state`，初始值为`null`  --->` this.state = null`
+>
+>   - 想让视图更新，我们需要基于`React.Component.prototype`提供的方法操作，
+>
+>     （1）`setState`方法，`this.setState(partialState)`，`partialState`的意思是**部分状态**，该方法既可以修改状态，也可以更新视图。
+>
+>     （2）`this.forceUpdate()`方法， 强制更新。
+>
+> - 触发周期函数：`componentwillMount` 周期函数（钩子函数）,组件第一次渲染之前，此周期函数，目前是不安全的，虽然现在可以用，但是未来可能会移除，所以不建议使用，使用会抛出黄色警告（可以使用`UNSAFE_componentWillMount`提前声明是不安全的，此时黄色警告会消失）。如果在`React.StrictMode`标签内嵌入组件函数，函数中有`componentwillMount`或者`UNSAFE_componentWillMount`钩子，则会发出红色警告
+>
+>   > `React.StrictMode`VS“`use strict`”
+>   >
+>   > `use strict`是`JS`的严格模式
+>   >
+>   > `React.StrictMode`是`React`中的严格模式，会检查`React`中不规范的语法
+>
+> - 触发`render()`函数
+>
+> - 再触发：`componentDidMount`周期函数，该函数再组件第一次渲染完毕调用，该函数执行完，页面中已经创建了真实DOM，可以进行DOM操作
+
+> 第一次渲染的逻辑
+>
+> 开始 >>> `getDefaultProps` >>> `getInitialState` >>> `componentWillMount` >>> `render` >>> `componentDidMount`  >>>接组件更新状态`State`改变
+>
+> 组件更新
+>
+> 第一次渲染 `componentDidMount` >>>运行中>>> 状态`State`改变 >>> `shouldComponentUpdate()` （如果是`false`，返回运行中）>>>`componentWillUpdate()` >>> `componentDidUpdate()`（返回运行中）
+>
+> 第一次渲染 `componentDidMount` >>>运行中>>>属性`Prop`改变 >>> `componentWillReceiveProps()`>>>`shouldComponentUpdate()`
+>
+> 组件卸载
+>
+> 运行中>>>`componentWillUnmount()`>>>结束
+
+
+
+- 组件更新的逻辑，修改组件内部的状态，组件会更新
+
+  当修改了相关的状态，组件会更新
+
+  - 触发周期函数`shouldComponentUpdate()` 代表是否要，进行组件更新
+
+    ```js
+    shouldConmpontUpdate(nextProps,nextState){
+        //nextState：存储要修改的最新状态
+        //this.state:存储的还是修改前的状态
+        console.log('在组件渲染前调用')
+        console.log(this.state, nextState)
+    
+        //此周期函数需要返回true/false
+        //true代表允许更新，会继续执行下一步操作，false代表不允许更新，接下来啥也不处理
+        return true
+    }
+    ```
+
+  - 接下来继续触发周期函数`CompontentWillUpdate(nextProps,nextState)`，更新之前
+
+    此周期函数也是不安全的，在这个阶段状态还没有修改
+
+  - 修改状态值/属性值（`this.state.xxx`改为最新的值）
+
+  - 触发 `render` 周期函数：组件更新
+
+    按照最新的状态或属性，把返回的`JS`编译为`virtualDOM`
+
+    然后和第一次渲染出来的`virtualDOM`进行`DOM-Diff`对比
+
+    把差异的部分进行渲染
+
+  - 触发 `componentDidUpdate()`周期函数： 组件更新完毕
+
+  > [!NOTE]
+  >
+  > 如果我们是基于`this.forceUpdate()`强制更新视图，会跳过`shouldComponentUpdate `周期函数的校验，直接从`componentWillUpdate`开始更新（视图一定会更新）
+
+> 深度优先原则：父组件在操作中，遇到子组件，一定是把子组件处理完，父组件才能继续处理
+>
+> 父组件的第一次渲染：
+>
+> 父`componentWillMount()`  >>>  父`render`({  子`componentWillMount()` >>> 子`render()` >>> 子`componentDidMount()`  }) >>>父`componentDidMount()`
+>
+> 父组件更新：
+>
+> 父`shouldComponentUpdate()` >>> 父`componentWillUpdate()` >>> 父`render`({子`componentWillReceiveProps()` >>> 子`shouldComponentUpdate()` >>> 子`componentWillUpdate()` >>> 子`render({})` >>> 子`componentDidUpdate()` }) >>> 父`componentDidUpdate()`
+>
+> 父组件销毁：
+>
+> 父`componentWillUnmount()`>>>子`componentWillUnmount()`>>>子组件销毁>>>父组件销毁
+
+- 组件更新的逻辑，父组件更新，触发的子组件更新
+
+  - 触发`componentWillReceiveProps()`周期函数，接收最新属性之前
+
+    ```js
+    UNSAFE_componentWillReceiveProps(nextProps){
+    	//this.props:存储之前的属性
+    	//nextProps:传递进来的最新属性
+    	console.log(this.props,nextProps)
+    }
+    ```
+
+    这个周期函数是不安全的，该周期函数完毕后，下一个钩子函数为`shouldComponentUpdate()`
+
+### 10、`PureComponent`机制
