@@ -1353,7 +1353,6 @@ class Demo extends React.PureComponent
 }
 
 export default Demo
-
 ```
 
 > [!IMPORTANT]
@@ -1406,4 +1405,614 @@ export default Demo
 > //hasOwnProperty() 可枚举属性存在检查
 > ```
 
-### 11、Ref的相关操作
+### 11、`Ref`的相关操作
+
+```jsx
+// ./src/index.jsx
+
+import React from 'react';
+import ReactDOM from 'react-dom/client'
+import Demo from './views/Demo'
+
+const root = ReactDOM.creatRoot(document.getElementById('root'));
+root.render(
+	<>
+		<Demo />
+    </>
+)
+```
+
+
+
+```jsx
+//./src/view/Demo.jsx
+import React from 'react'
+
+class Demo extends React.Component{
+	box3 = React.createRef();//this.box3 = xxx 往实例上添加私有属性
+
+    render(){
+		return (
+        	<div>
+                <h2 className="title" ref='Box1'>温馨提示</h2>
+                <h2 className="title" ref={ x => this.box2 }>友情提示</h2>
+                <h2 className="title" ref={ this.box3 }>郑重提示</h2>
+            </div>
+        )
+    }
+	componentDidMount(){
+        //第一次渲染完毕 virturaDOM已经变为真实DOM，此时我们可以获取需要操作DOM元素
+        console.log(this.refs.Box1)//不推荐这么使用
+        console.log(this.box2)
+        console.log(this.box3.current)
+    }
+
+}
+
+export default Demo
+```
+
+> [!TIP]
+>
+> 受控组件：基于修改数据/状态，让视图更新，达到需要的效果
+>
+> 非受控组件：基于`ref`获取`DOM`元素，我们操作`DOM`元素，来实现需求和效果基于`ref`获取`DOM`元素的语法
+>
+> ​	1、给需要获取的元素设置`ref`=’`xxx`‘，后期基于`this.refs.xxx`去获取相应的DOM元素<h2 ref='titleBox'>...</h2>获取`this.refs.titleBox` ,不推荐使用，因为在`React.StrictMode`标签下容易报错
+>
+> ​	2、把ref属性值设置为一个函数，`ref`={ `x`=> `this.xxx = x` }，`x`是函数的形参，存储的就是当前的`DOM`元素，然后我们把获取的`DOM`元素’`x`'直接挂载到实例的某个属性上（例如： `box2`），获取`this.xxx`
+>
+> ​	3、基于`React.createRef()`方法创建一个`REF`对象, `this.xxx = React.createRef()`等价于 `this.xxx` = { `current :null` }，`ref `= {`REF对象`(也就是`this.xxx`)}，获取`this.xxx.current`
+>
+> 原理：在`render`渲染的时候，会获取`virtualDOM`的`ref`属性，如果属性值是一个字符串，则会给`this.refs`增加这样的成员，成员值就是当前的`DOM`元素，如果`ref`是一个函数，则会把函数执行，把当前`DOM`元素传递给这个函数，而在函数执行内部，我们一般都会把`DOM`元素直接挂载到实例的某个属性上，如果属性值是一个REF对象，会把DOM元素赋值给对象的current属性
+
+```jsx
+//./src/view/Demo.jsx
+import React from 'react'
+
+class child1 extends React.Component{
+    state = {
+        x:100,
+        y:200
+    }
+    render(){
+		return (
+        	<div>
+                子组件1
+                <em ref = {x=>this.emBox }>100</em>
+            </div>
+        )
+    }
+}
+
+const child2 = function child2(){
+    render(){
+		return (
+        	<div>
+                子组件2
+            </div>
+        )
+    }
+}
+const child3 = React.forWardRef(function child3(props, ref){
+    console.log(ref)  //我们调用child3的时候，设置ref传进来的属性值“x => this.child3 = x”
+    render(){
+		return (
+        	<div>
+                子组件3
+                <button ref = { ref }>按钮</button>  
+                //相当于<button ref = { x => this.child3 = x }>按钮</button>
+            </div>
+        )
+    }
+})
+class Demo extends React.Component{
+    render(){
+		return (
+        	<div>
+                <Child1 ref= { x => this.child1 = x }/>
+                <Child2 ref= { x => this.child2 = x }/>  //会报错，不能赋值给函数ref
+                <Child3 ref= { x => this.child3 = x }/>  //针对child2的解决方案
+            </div>
+        )
+    }
+	componentDidMount(){
+        console.log(this.child1)  //存储的是：子组件的实例对象
+        console.log(this.child2)  //报错！函数组件不能调用ref
+    }
+
+}
+
+export default Demo
+```
+
+> [!TIP]
+>
+> 给元素标签设置`ref`， 目的：获取对应的`DOM`元素
+>
+> 给类组件设置`ref`， 目的：获取当前调用类组件创建的实例，后续可以根据实例获取子组件的相关信息
+>
+> 给函数组件设置`ref`， 直接报错：Function components cannot be given refs. Attempts to access this ref will fail. 但是我们让其配合`React.forWardRef` 实现`ref`的转发，目的是获取函数组件内部的某个元素
+
+### 12、`setState`方法探索
+
+```jsx
+// ./src/index.jsx
+
+import React from 'react';
+import ReactDOM from 'react-dom/client'
+import Demo from './views/Demo'
+
+const root = ReactDOM.creatRoot(document.getElementById('root'));
+root.render(
+	<>
+		<Demo />
+    </>
+)
+```
+
+
+
+```jsx
+//./src/view/Demo.jsx
+import React from 'react'
+
+class Demo extends React.Component {
+    state = {
+        x: 10,
+        y: 5,
+        z: 0
+    }
+    handle = () => {
+        //this -> 实例[宿主环境]
+        let { x, y, z } = this.state; 
+        this.setState({
+            x:100
+        },()=>{
+            console.log('点击更新')
+        })
+    }
+    shouldComponentUpdate(){  //即便返回false，setState函数也会更新，它只与点击事件关联
+        return false
+    }
+    componentDidUpdate(){	//如果shouldcomponentUpdate返回的false，则componentDidUpdate不执行
+        console.log('更新完毕')
+    }
+	render(){
+    	console.log('视图渲染:RENDER');
+        let { x, y, z } = this.state;
+		return(
+			<div>
+                x:{x} - y:{y} - z:{z}
+                <br/>
+                <button onClick={this.handle}>按钮</button>
+			</div>
+		)
+	}
+}
+export default Demo
+```
+
+> [!TIP]
+>
+> `this.setState([partialState],[callback])`
+>
+> `[partialState]`: 支持部分状态修改
+>
+> ```jsx
+> this.setState({
+> 	x: 100 //不论总共多少状态，我们只修改了x，其余的状态不动
+> })
+> ```
+>
+> `[callback]`: 在状态更改，视图更新完毕后触发执行
+>
+> ​	发生在`compontentDidUpdate()`钩子函数后，也就是这个钩子函数先运行，后才会运行`callback`，`componentDidUpdate()`会在任何状态下更改后都会触发，而回调函数方式，可以指定状态更新后处理一些事情
+>
+> ​	特殊情况，即便我们基于`shouldComponentUpdate`阻止了状态/视图更新，`compontentDidUpdate`周期函数不执行了，但是我们设置的这个`callback`回调函数依然会触发执行。
+
+- 底层机制
+
+```jsx
+//./src/view/Demo.jsx
+import React from 'react'
+
+class Demo extends React.Component {
+    state = {
+        x: 10,
+        y: 5,
+        z: 0
+    }
+    handle = () => {
+        //this -> 实例[宿主环境]
+        let { x, y, z } = this.state;
+		this.setState({ x:x + 1 });  
+        console.log(this.state.x)  //10
+        this.setState({ y:y + 1 });
+        console.log(this.state.x,this.state.y) //10，5
+        
+        setTimeOut(() => {  //此操作为异步操作，遇到异步直接跳过，先渲染x,y，1s之后，定时器到时间后，再添加到队列中
+            this.setState({ z:z + 1 }); //这里x和y是上一次更新处理的（x11，y5，z0），z还没有改，在进行渲染
+            console.log(this.setState.z)
+        },1000)
+    }
+    shouldComponentUpdate(){  //即便返回false，setState函数也会更新，它只与点击事件关联
+        return false
+    }
+    componentDidUpdate(){	//如果shouldcomponentUpdate返回的false，则componentDidUpdate不执行
+        console.log('更新完毕')
+    }
+	render(){
+    	console.log('视图渲染:RENDER');
+        let { x, y, z } = this.state;
+		return(
+			<div>
+                x:{x} - y:{y} - z:{z}
+                <br/>
+                <button onClick={this.handle}>按钮</button>
+			</div>
+		)
+	}
+}
+export default Demo
+```
+
+> [!TIP]
+>
+> `setState`在任何地方执行，都是“异步操作”
+>
+> ​	`react`有一套更新队列的机制（更新队列“`updater`”），基于异步操作，实现状态批处理，好处减少视图更新次数，降低渲染消耗的性能，让更新的逻辑和流程更清晰
+>
+> ​	进行`setState({x: x+1})`后，不会立即更新状态和视图，而是将同步的代码加入到更新的队列中，当上下文的代码都处理完毕后，会让更新队列的任务，统一渲染/更新一次“批处理”，如果有异步的，则跳过异步的指令，先渲染同步任务，等到异步完成后再调用渲染一次
+>
+> > 更新队列 updater
+> >
+> > > 任务1：修改x
+> > >
+> > > 任务2：修改y
+> > >
+> > > 任务3：修改z
+>
+> `setState`操作都是异步的，不论在哪执行，例如合成时间，周期函数，定时器都是异步处理，目的是实现状态的批处理，有效减少更新次数，降低性能消耗，有效管理代码的执行的逻辑顺序
+>
+> 原理是利用了更新队列机制
+>
+> > 在当前相同时间段内，浏览器此时可以处理的事情中，遇到`setState`会立即放入到更新队列中！，此时状态和视图还没有更新，当所有的代码操作结束，会刷新队列，就是通知更新队列中的任务执行，把所有放入的`setState`合并在一起，只触发一次视图更新（批处理操作）
+
+> [!IMPORTANT]
+>
+> 在`React18`和`React16`中，关于`setState`是同步还是异步，是有一些区别的
+>
+> ​	`React18`：不论在什么地方，执行的都是`setState`，都是异步的
+>
+> ​	`React16`:  如果合成事件（水和事件）、周期函数，`setState`的操作是异步的，但是如果`setState`出现在其他异步操作中（如定时器，手动获取`DOM`元素绑定等），它将变为同步操作（即立即更新状态和让视图渲染）
+
+- `flushSync`方法
+
+```jsx
+import React from 'react'
+import { flushSync } from 'react-dom'
+//强制同步视窗
+...
+handle=()=>{
+	let { x, y } = this.state
+	this.setState({ x:x+1 })
+	console.log(this.state) //10 5 0
+	flushSync(() => {
+		this.setState({ y: y+1 })
+		console.log(this.state) //10 5 0
+	})//在flushSync操作结束后，会立即“刷新”更新队列
+	console.log(this.state) //11 6 0
+	this.setState({ z: this.state.x + this.state.y })
+}
+...
+
+//this.setState(
+//	{x: this.state+1}
+//})
+///////////////////////////////////////////////////
+//this.setState((prevState)=>{
+	//prevState: 存储之前的状态值
+	//return的对象，就是我们想要修改的新状态值，支持修改部分状态
+	//return {
+    //  xxx:xxx
+    //}
+//})
+```
+
+### 13、React合成事件
+
+> Synthetic Event
+>
+> 合成事件是围绕浏览器原生事件，充当跨浏览器包装器的对象，他们将不同浏览器的行为合并成一个`API`，这样做是为了确保事件在不同浏览器中显示一致的属性
+
+- 合成事件的基本操作
+
+  - 基础语法
+
+  在JSX元素上，直接基于`onXxx = { 函数 }`进行事件绑定！
+
+  浏览器标准事件，在React中大部分是支持的
+
+  ```jsx
+  //./src/view/Demo.jsx
+  import React from 'react'
+  
+  class Demo extends React.Component {
+      
+      //基于React内部的处理，如果我们给合成事件绑定一个普通函数，当事件行为触发，绑定的函数执行，方法中的this会是undefined
+      //解决方案：this -> 实例 基于js中的bind方法，预先处理函数中的this和实参
+      //推荐方案：也可以把绑定的函数设置为“箭头函数”，让其使用上下文中的this
+      //合成事件对象SyntheticBaseEvent：我们在React合成事件触发的时候，也可以获得到事件对象，只不过此对象是合成事件对象，合成事件对象中，包含了浏览器内置事件对象中的一些属性和方法，常用的都有
+      //clientX/clientY
+      //pageX/pageY
+      //target
+      //type
+      //preventDefault
+      //stopPropagation
+      //...
+      //nativeEvent:基于这个属性，可以获取浏览器内置原生的事件对象
+      handle0(){  //Demo.prototype => Demo.prototype.handle = function handle()
+          console.log(this) //undefined
+      }
+      handle1(x,y，ev){  //Demo.prototype => Demo.prototype.handle = function handle()
+          //只要经过bind方法处理了，那么最后一个实参，就是传递的合成对象！！
+          console.log(this,x,y,ev) //Demo实例，10，20,合成对象
+      }
+  	handle2= (ev) => { //实例.handle3 = () => { ... }
+          console.log(this) //Demo实例
+          console.log(ev) //SyntheticBaseEvent 合成事件对象（React内部经过特殊处理，把各个浏览器的事件对象统一化后构建的一个对象）
+      }
+      handle3 =(x,ev) ={
+          console.log(x,ev)
+      }
+  	render(){
+  		return(
+  			<div>
+                  <button onClick={this.handle0}>按钮</button>
+                  <button onClick={this.handle1.bind(this，10，20)}>按钮</button>
+                  <button onClick={this.handle2}>按钮</button>
+                  <button onClick={this.handle3.bind(null,10)}>按钮</button>
+  			</div>
+  		)
+  	}
+  }
+  export default Demo
+  ```
+  
+  > [!NOTE]
+  >
+  > 在`js`中，是基于 `call/apply/bind` 修改`this`
+  >
+  > bind在react中运用
+  >
+  > 绑定的方法是一个普通的函数，需要改变函数中的this是实例，此时需要用到bind
+  >
+  > 想给函数传递指定的实参，可以基于bind预先处理，bind会把事件对象以最后一个实参传递给函数
+
+### 14、事件及事件委托
+
+- 前置基础
+
+```html
+<html>
+    <head>
+        <title>事件委托</title>
+        <style>
+            *{
+                margin:0;
+                padding:0;
+            }
+            html,body{
+                height: 100%;
+                overflow: hidden;
+            }
+            .center {
+                position:absolute;
+                top:50%；
+                left:50%;
+                transform: translate(-50%, -50%);
+            }
+            #root {
+                width: 300px;
+                height: 300px;
+                background: lightblue;
+            }
+            #outer {
+                width: 200px;
+                height: 200px;
+                background: lightgreen;
+            }
+            #inner {
+                width: 100px;
+                height: 100px;
+                background: lightcoral;
+            }
+        </style>
+    </head>
+    <body>
+        <div id='root' class='center'>
+            <div id='outer'class='center'>
+                <div id='inner'class='center'>
+
+                </div>
+            </div>
+        </div>
+        <script>
+            //window -> document -> html -> body -> root -> outer -> inner
+            const html = document.documentElement,
+                  body = document.body,
+                  root = document.querySeletor('#root'),
+                  outer = document.querySeletor('#outer'),
+                  inner = document.querySeletor('#inner');
+            //root
+            root.addEventListener('click', function(){
+                console.log('root 捕获')
+            },true)
+             root.addEventListener('click', function(){
+                console.log('root 冒泡')
+            },false)
+            //outer
+            outer.addEventListener('click', function(){
+                console.log('outer 捕获')
+            },true)
+             outer.addEventListener('click', function(){
+                console.log('outer 冒泡')
+            },false)
+            //inner
+            inner.addEventListener('click', function(){
+                console.log('inner 捕获')
+            },true)
+            inner.addEventListener('click', function(ev){
+                ev.stopPropagation()//阻止事件传播
+                console.log('inner 冒泡')
+            },false)
+        </script>
+    </body>
+</html>
+```
+
+> [!NOTE]
+>
+> `window` ->` document` -> `html` -> `body` -> `root` -> `outer` -> `inner`
+>
+> 打印结果为
+>
+> `root` 捕获 -> `outer` 捕获 ->`inner` 捕获 ->`inner` 冒泡-> `outer` 冒泡-> `root` 冒泡
+>
+> 事件的传播机制，例如：当我们触发inner的点击行为的时候，第一步，从最外层向最里层逐一查找（捕获阶段，分析路径），第二部，把事件源（点击这个元素）的点击行为触发（目标阶段），第三步，按照捕获阶段的分析出来的路径，从里到外，把每一个元素的点击元素行为也触发
+>
+> 事件和事件绑定：事件是浏览器赋予元素的默认行为，事件绑定是给这个行为绑定一个方法。即便我们没有给`body`的点击事件绑定方法，当我们点击`body`的时候，其点击行为也会被触发，只不过啥事都没做而已
+>
+> `（ev）=> ev.stopPropagation() `阻止事件传播，包括冒泡和捕获阶段
+>
+> `(ev) => ev.stopImmediatePropagation()`也是阻止事件传播，只不过它可以当前元素绑定的其他的监听事件，如果还未执行，也不会再执行了
+
+**事件委托就是利用事件的传播介质，实现的一套事件绑定处理方案**
+
+> 例如：一个容器中，有很多元素都要在点击的时候做一些事情
+>
+> 传统方案：首先获取需要操作的元素，然后逐一做事件绑定
+>
+> 事件委托方法：只需要给容器做一个事件绑定，（点击内部的任何元素，根据事件的冒泡传播机制，都会让容器的点击事件触发，我们在这里，根据事件源，做不同的事情就可以了）
+>
+> ```js
+> const body = document.body
+> body.addEventListener('click', function (ev) {
+> 	let target = ev.target,
+> 		id = target.id
+> 	if(id === 'root'){
+> 		console.log('root')
+> 		return
+> 	}
+> 	if(id === 'outer'){
+> 		console.log('outer')
+> 		return
+> 	}
+> 	if(id === 'inner'){
+> 		console.log('inner')
+> 		return
+> 	}
+>     //如果以上都不是，我们处理啥
+> })
+> ```
+>
+> 事件委托的优势：提高`JS`代码运行性能，并且把处理逻辑都集中在一起，某些需求必须基于事件委托处理，例如：除了点击XXX以外，点击其余任何东西，都....，给动态绑定元素做事件绑定
+>
+> 事件委托的限制：当前操作事件必须支持冒泡传播机制才可以，例如：`mouseenter`/`mouseleave`等事件是没有冒泡机制的，如果单独做的事件绑定中，做了事件传播机制的阻止，那么事件委托的操作也不会生效
+
+### 15、React合成事件机制
+
+```jsx
+// ./src/index.jsx
+
+import React from 'react';
+import ReactDOM from 'react-dom/client'
+import Demo from './views/Demo'
+
+const root = ReactDOM.creatRoot(document.getElementById('root'));
+root.render(
+	<>
+		<Demo />
+    </>
+)
+```
+
+
+
+```jsx
+//./src/view/Demo.jsx
+import React from 'react'
+
+class Demo extends React.Component {
+
+	render(){
+		return(
+			<div className="outer" onClick={()=>{
+                        console.log('outer 冒泡')
+                    }} onClickCapture={()=>{
+                        console.log('outer 捕获')
+                    }}>
+                <div className='inner' onClick={()=>{
+                        console.log('inner 冒泡')
+                    }} onClickCapture={()=>{
+                        console.log('inner 捕获')
+                    }}></div>
+			</div>
+		)
+	}
+    compontentDidMount(){
+        document.addEventListener('click', ()=>{
+            console.log('document 捕获')
+        }，true);
+        document.addEventListener('click', ()=>{
+            console.log('document 冒泡')
+        }，false);
+        document.body.addEventListener('click', ()=>{
+            console.log('body 捕获')
+        }，true);
+        document.body.addEventListener('click', ()=>{
+            console.log('body 冒泡')
+        }，false);
+        
+        let root = document.queryselector('#root');
+        root.addEventListener('click', ()=>{
+            console.log('root 捕获')
+        }，true);
+        root.addEventListener('click', ()=>{
+            console.log('root 捕获')
+        }，false);
+        
+        
+    }
+}
+export default Demo
+
+//结果是
+//document 捕获
+//body 捕获
+//outer 捕获
+//inner 捕获
+//root 捕获
+//inner 冒泡
+//outer 冒泡
+//root 冒泡
+//body 冒泡
+//docment 冒泡
+```
+
+> [!NOTE]
+>
+> `React`中合成事件的处理原理
+>
+> ​	`React`的合成事件处理方式绝对不是给当前元素基于`addEventListener`做的事件绑定，React中的合成事件，都是基于“事件委托处理”的，
+>
+> >  在`React17`及以后版本，都是委托给`#root`这个容器（捕获和冒泡都做了委托）
+> >
+> > 在`React17`版本以前，都是委托给`document`容器的（而且只做了冒泡阶段的委托）
+> >
+> > 对于没有实现事件传播机制的事件，才是单独做的事件绑定（`onMouseEnter/onMouseLeave`这两个没有事件传播机制）
+>
+> 在组件渲染的时候，如果发现`JSX`元素中有 `onXxx/onXxxCapture`这样的属性，不会给当前元素直接做事件绑定，只是把绑定的方法赋值给元素的相关属性，例如：`outer.onClick = () => {console.log('outer 冒泡[合成]')}` ,注意：这不是`DOM0级`的事件绑定（`outer.onclick`）
+>
+> 然后对#root这个容器做了事件绑定（捕获和冒泡都做了），原因是因为组件所渲染的内容，最后都会插入到#root这个容器，这样
