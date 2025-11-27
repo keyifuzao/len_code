@@ -2015,4 +2015,539 @@ export default Demo
 >
 > 在组件渲染的时候，如果发现`JSX`元素中有 `onXxx/onXxxCapture`这样的属性，不会给当前元素直接做事件绑定，只是把绑定的方法赋值给元素的相关属性，例如：`outer.onClick = () => {console.log('outer 冒泡[合成]')}` ,注意：这不是`DOM0级`的事件绑定（`outer.onclick`）
 >
-> 然后对#root这个容器做了事件绑定（捕获和冒泡都做了），原因是因为组件所渲染的内容，最后都会插入到#root这个容器，这样
+> 然后对#root这个容器做了事件绑定（捕获和冒泡都做了），原因是因为组件所渲染的内容，最后都会插入到#root这个容器，这样点击页面的任何一个元素，最后都会把#root的点击行为触发，而在给#root绑定的方法中，把之前给元素设置的`onXxx/onXxxCapture`属性，在相应的阶段执行！
+
+```html
+<html>
+    <head>
+        <title>事件合成原理</title>
+        <style>
+            *{
+                margin:0;
+                padding:0;
+            }
+            html,body{
+                height: 100%;
+                overflow: hidden;
+            }
+            .center {
+                position:absolute;
+                top:50%；
+                left:50%;
+                transform: translate(-50%, -50%);
+            }
+            #root {
+                width: 300px;
+                height: 300px;
+                background: lightblue;
+            }
+            #outer {
+                width: 200px;
+                height: 200px;
+                background: lightgreen;
+            }
+            #inner {
+                width: 100px;
+                height: 100px;
+                background: lightcoral;
+            }
+        </style>
+    </head>
+    <body>
+        <div id='root' class='center'>
+            <div id='outer'class='center'>
+                <div id='inner'class='center'>
+
+                </div>
+            </div>
+        </div>
+        <script>
+            //window -> document -> html -> body -> root -> outer -> inner
+            const root = document.querySeletor('#root'),
+                  outer = document.querySeletor('#outer'),
+                  inner = document.querySeletor('#inner');
+			//经过视图渲染解析，outer/inner上都有onXxx/onXxxcapture这样的属性
+            
+            outer.onClick = () => { console.log('outer 冒泡【合成】')}
+            outer.onClickCapture = () => { console.log('outer 捕获【合成】')}
+            inner.onClick = () => { console.log('inner 冒泡【合成】')}
+            inner.onClickCapture = () => { console.log('outer 捕获【合成】')}
+            
+            //给#root做事件绑定
+            root.addEventListener('click', (ev)=>{ 
+            	let path = ev.path
+                console.log(path) //path:[事件源 -> ... -> window] 所有祖先元素
+                [...path].reverse().forEach(ele =>{
+                    let handle = ele.onClickCapture;
+                    if (handle) handle()
+                })
+            },true)
+            root.addEventListener('click', (ev)=>{ 
+                path.forEach(ele =>{
+                    let handle = ele.onClick;
+                    if (handle) handle()//在这里把绑定的合成事件方法执行，如果不经过处理，方法中的this是undefined，在执行这些方法之前，把原生的事件对象做特殊处理，返回合成事件对象，传递给函数
+                })
+            },false)
+        </script>
+    </body>
+</html>
+```
+
+点击inner，按照原生的事件传播机制
+
+`window`捕获 -> `document`捕获 -> `html`捕获 -> `body`捕获 -> `root`捕获：执行捕获阶段的委托程序 ->` outer`捕获 -> `inner`捕获
+
+` inner`冒泡-> `outer`冒泡 ->`root`冒泡：执行冒泡阶段的委托程序->`body`冒泡->`html`冒泡 -> `document`冒泡->`window`冒泡
+
+所谓合成事件绑定，其实并没有给元素本身做事件绑定，而是给元素设置`onXxx/onXxxCapture`这样的合成事件属性！当事件行为触发，根据原生事件都会传播到`#root`容器上，`React`内部给`#root`容器做了事件绑定**捕获和冒泡**
+
+当React内部绑定的方法执行的时候，会依据`ev.path`中分析的路径依次把对应阶段的`onXxx/onXxxCapture`等事件合成属性触发！
+
+合成事件是利用事件委托（事件传播机制）完成的！！
+
+- 探索合成事件中的事件阻止属性
+
+```jsx
+//./src/view/Demo.jsx
+import React from 'react'
+
+class Demo extends React.Component {
+
+	render(){
+		return(
+			<div className="outer" onClick={()=>{
+                        console.log('outer 冒泡')
+                    }} onClickCapture={()=>{
+                        console.log('outer 捕获')
+                    }}>
+                <div className='inner' onClick={(ev)=>{
+                        //ev:合成事件对象
+                        console.log('inner 冒泡')
+                        //ev.stopPropagation()//合成事件中的阻止事件传播：阻止原生的事件传播，阻止合成事件中的事件传播
+                        //ev.nativeEvent.stopPropagation()//原生事件对象中的“阻止事件传播”，只能阻止原生事件
+                        //ev.nativeEvent.stopImmediatePropagation()//原生事件对象中的“阻止事件传播”，只不过可以阻止#root上的其他绑定方法执行
+                    }} onClickCapture={()=>{
+                        console.log('inner 捕获')
+                    }}></div>
+			</div>
+		)
+	}
+    compontentDidMount(){
+        document.addEventListener('click', ()=>{
+            console.log('document 捕获')
+        }，true);
+        document.addEventListener('click', ()=>{
+            console.log('document 冒泡')
+        }，false);
+        document.body.addEventListener('click', ()=>{
+            console.log('body 捕获')
+        }，true);
+        document.body.addEventListener('click', ()=>{
+            console.log('body 冒泡')
+        }，false);
+        
+        let root = document.queryselector('#root');
+        root.addEventListener('click', ()=>{
+            console.log('root 捕获')
+        }，true);
+        root.addEventListener('click', ()=>{
+            console.log('root 捕获')
+        }，false);
+        
+        //这里只要使用到EV就是原生对象事件，使用的都是js内部的事件方法
+    }
+}
+export default Demo
+
+```
+
+> [!CAUTION]
+>
+> 在16版本，合成事件的处理机制，不再是把事件委托给`#root`对象，而是委托给`document`对象，并且只在冒泡阶段的进行委托，在委托的方法中，把`onXxx/onXxxCapture`合成事件属性进行执行，这里冒泡和捕获的所有方法均写在了冒泡阶段的函数中，而18中，分别在冒泡和捕获阶段均设置相应的处理函数
+>
+> 在16版本中，关于合成事件对象的处理，`React`内部是基于事件对象池，做了一个缓存机制，`React17`以后，是去掉了这套事件对象池和缓存机制，当每一次事件触发的时候，如果传播到了委托的元素上（`document/#root`），在委托的方法中，我们首先会对内置事件对象做统一处理，生成合成事件对象，而在16版本中，为了防止每一次都是重新创建出的新的事件对象，它设置了一个事件对象池，本次事件触发，获取到事件操作的相关信息，我们从事件对象池中，获取存储的合成事件对象，把信息赋值给相关的成员信息，等待本次操作结束，把合成事件对象中的成员信息都清空掉，再放入到事件对象池中
+>
+> 在16版本，`ev.persist()`方法可以将合成事件对象中的信息保留下来
+
+- 移动端细节问题
+
+移动端的`click`是单击事件，`pc`端的`click`是点击事件
+
+连续点击两下：
+
+​	PC端会触发：两次click事件，一次dblclick事件
+
+​	移动端会触发：不会触发click，指挥触发dblclick事件，
+
+​	点击事件的原理：第一次点击后，监听`300ms`，看是否有第二次点击操作，如果没有就是单击，如果有就是双击
+
+单手指事件模型：`touch`
+
+`touchstart`、`touchmove`、`touchend`
+
+```jsx
+//./src/view/Demo.jsx
+import React from 'react'
+
+class Demo extends React.Component {
+	// 手指按下：记录下手指的起始坐标
+    touchstart = (ev) =>{
+        console.log(ev)
+        let finger = ev.changedTouches[0]//记录了操作手指的相关信息
+        this.touch = {
+            startX:finger.pageX
+            startY:finger.pageY
+            isMove:false
+        }
+    }
+    //手指移动,记录手指偏移值，和误差值做对比，分析出是否发生移动
+    touchmove = (ev) =>{
+		let finger = ev.changedTouches[0]，//记录了操作手指的相关信息
+        	{ startX, startY } = this.touch
+        let changeX = finger.pageX - startX,
+            changeY = finger.pageY - startY;
+        if(Math.abs(change)>10 || Math.abs(change)>10){
+            this.touch.isMove = true
+        }
+    }
+    //手指离开,根据isMove判断是否是点击
+    touchend = () =>{
+        let { isMove } = this.touch;
+        if (isMove) return
+        console.log('点击了按钮')
+    }
+    
+	render(){
+		return(
+			<div>
+				<button onTouchStart={this.touchstart} 
+                    onTouchMove={ this.touchmove } 
+                    onTouchEnd={this.touchend}>提交</button>
+			</div>
+		)
+	}
+
+}
+export default Demo
+
+```
+
+```jsx
+//./src/view/Demo.jsx
+import React from 'react'
+
+import FastClick from 'fastclick'
+FastClick.attach(document.body) //使用FastClick解决移动端click事件的300ms延迟问题
+
+class Demo extends React.Component {
+	
+    handle = () => {
+        console.log('点击了按钮')
+    }
+    
+	render(){
+		return(
+			<div>
+				<button onClick = {this.handle}>提交</button>
+			</div>
+		)
+	}
+
+}
+export default Demo
+```
+
+- 循环节点绑定点击事件
+
+```jsx
+//./src/view/Demo.jsx
+import React from 'react'
+
+class Demo extends React.Component {
+	state = {
+        arr: [{
+            id:1,
+            title:'新闻'
+        },{
+            id:2,
+            title:'体育'
+        },{
+            id:3,
+            title:'电影'
+        }]
+    }
+    handle = (item) =>{
+        console.log('我点击的是' + item.title)
+    }
+    
+	render(){
+        let { arr } = this.state
+		return(
+			<div>
+				{arr.map(item => {
+                    let {id,title} =item;
+                    return(
+                    	<span key={id} style={{
+                                padding:'5px 15px',
+                                marginRight:10,
+                                border:'1px solid #DDD',
+                                cursor:'pointer'
+                            }} onClick={
+                                this.handle.bind(this,item)
+                            }>{title}
+                        </span>
+                    )
+                })}
+			</div>
+		)
+	}
+}
+export default Demo
+```
+
+按照正常，我们再给循环节点创建点击事件，是按照事件委托的方式进行触发点击事件，但是在React中，我们不需要考虑这些，我们循环给元素绑定的合成事件，本身就是基于事件委托处理的，所以无需我们再单独的设置事件委托的处理机制
+
+在`vue`中，没有委托机制，最好是按照`js`原生的方式，在循环体容器上设置事件委托机制
+
+### 16、练习：`TASK OA`系统
+
+技术栈：`React`、`Antd`, 服务端`pm2`进行服务器状态管理， 发送请求用`Axios`
+
+`UI` 组件库，是把项目中常用的功能封装成一个个的组件【结构、样式、功能】，后期项目开发中，我们基本是必用`UI`组件库
+
+- `React` `UI`组件库
+  - PC端：`Antd`、`AntdPro`
+  - 移动端：`AntdMobile`
+
+- Vue UI组件库
+  - PC端：`element-ui`、`antd for vue`、`iview`
+  - 移动端：`vant`、`cube`
+
+`antd`组件库 自带按需导入，我们安装整个`antd`，后期在项目中用到哪些组件，最后打包的时候，只打包用的
+
+修改UI组件库的样式：
+
+> 1、找到渲染后的内容，我们去观察它的样式类和相关样式
+>
+> 2、按照样式类去修改样式，只要保证我们自己写的样式权重高即可，必要时可以使用`!important`方式在`css`中提高的最高
+
+```jsx
+// ./src/index.jsx
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import Task from './views/Task'
+//使用ANTD组件库
+import { ConfigProvider } from 'antd' //配置库
+import zhCN from 'antd/locale/zh_CN' //中文配置
+import './src/index.less'
+
+const root = ReactDOM.createRoot(document.getElementById('app'))
+root.render(
+	<ConfigProvider locale={ zhCN }>
+        <Task />
+    </ConfigProvider>
+)
+```
+
+```less
+// ./src/index.less 
+
+@import './assets/reset.min.css';
+
+.ant-btn {
+    border-radius: 0;
+    $.ant-btn-sm {
+        border-radius: 0;
+    }
+}
+
+.ant-picker,
+.ant-input{
+    border-radius: 0;
+}
+
+textarea{
+    resize: none;
+}
+```
+
+
+
+```jsx
+// ./src/views/Task.jsx
+
+import React from 'react'
+import './Task.less'
+import { Button, Form, Input, Modal, Table, Tag, Popconfirm, DatePicker, message } from 'antd'//你想用哪个组件就导入哪个
+
+//对日期处理方法
+const zero = function zero(text) {
+    text = String(text)
+    return text.length<2? '0'+text : text;
+}
+const formatTime = function formatTime(time){
+    let arr = time.match(/\d+/g)
+    let [,month,day,hours = '00',minutes = '00'] = arr
+    return `${zero(month)}-${zero(day)} ${zero(hours)}:${zero(minutes)}`
+}
+
+class Task extend React.compontent{
+    //表格列的数据
+    columns = [{
+        title:'编号',
+        dataIndex:'id',
+        align: 'center',
+        width: '8%',
+    },{
+        title:'任务描述', 
+        dataIndex:'task',
+        ellipsis: true,
+        width: '50%',
+    },{
+        title:'状态',
+        dataIndex:'state',
+        align: 'center',
+        width: '10%',
+        render:text => {
+        	return +text===1?'未完成' : '已完成'	
+        }
+    },{
+        title:'完成时间',
+        dataIndex:'time',
+        align: 'center',
+        width: '15%',
+        render:(_, record) => {
+            let {state, time, complete} = record
+            if(+state === 2 ) time = complete
+            return formatTime(time)
+        }   
+    },{
+        title:'操作',
+        render:(_,record) => {
+            let { state } = record
+            return(
+            	<>
+                	<Popconfirm title="您确定要删除此任务么？" onConfirm={()=>{}}>
+                    	<Button type="link">删除</Button>
+                	</Popconfirm>
+                	{+state !==2? <Popconfirm title="您确定把此任务设置成完成吗？" onConfirm={()=>{}}>
+                    	<Button type="link">完成</Button>
+                	</Popconfirm>:null}
+            	</>
+            )
+        }
+    }]
+    //初始组件的状态
+    state={
+        tableDate:[{
+            id:1,
+            task:"今天天气很不错，今夜阳光明媚"
+            state:1,
+            time:'2022-11-29 18:00:00'
+            complete:"2022-11-29 18:00:00"
+        }],
+        tableLoading:false,
+        modalVisible:false,
+        confirmLoading:false,
+    };
+	//对话框和表单处理的方法
+	closeModal =() =>{ //关闭对话框&清除表单内容
+        this.setState({
+            modalVisible:false,
+            confirmLoading:false
+        })
+        this.formIns.resetFields()
+    }
+    submit = async() => {  //新增任务
+        try{
+            await this.formIns.validateFields();
+        	message.success('表单校验通过')
+        }catch(_){
+            
+        }
+    }
+    
+    render(){
+        let { tableData, tableLoading, modalVisible, confirmLoading } = this.state;
+        <div className="task-box">
+            <div className="header">
+                <h2 className='title'>TASK OA 系统任务管理系统</h2>
+                <Button type="primary" onClick={()=>{
+                        this.setState({
+                            modalVisible = true
+                        })
+                    }}>新增任务</Button>
+            </div>
+            <div className='tag-box'>
+                <Tag color='#1677ff'>全部</Tag>
+                <Tag>未完成</Tag>
+                <Tag>已完成</Tag>                
+            </div>
+            <Table dataSource={ tableData } columns={ this.columns } loading={tableLoading} pagination={ false } rowKey='id' />
+            <Modal title="新增任务窗口" open={ modalVisible } confirmLoading={ confirmLoading } keyboard= { false } maskClosable={ false } okText='确认提交' onCancel={ this.closeModal } onOk={ this.submin }>
+                <Form layout="vertical" initialValues={{
+                        task: '',
+                        time:''
+                    }} >
+                	<Form.Item ref={x => this.formInx = x} label="任务描述" name="task" validateTigger="onBlur" rules={[
+                            {require: true,message:'任务描述必填'},
+                            {min:6,message:'输入的内容至少6位及以上'}
+                        ]}>
+                        <Input.TextArea rows={ 4 }></Input.TextArea>
+                    </Form.Item>
+                    <Form.Item label="预期完成时间" name="time" validateTigger="onBlur" rule={[
+                            {require: true,message:'预期完成事件是必填项'}
+                        ]}>
+                        <DatePicker showTime />
+                    </Form.Item>
+                </Form>
+            </Modal>
+        </div>
+    }
+}
+export default Task
+```
+
+```less
+// ./src/views/Task.less
+.task-box {
+    box-sizing: border-box;
+    margin: 0 auto;
+    width: 800px;
+    
+    .header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding-bottom: 10px;
+        border-bottom: 1px solid #DDD;
+        
+        .title {
+            font-size: 20px;
+            line-height: 50px;
+        }
+    }
+    
+    .tag-box {
+        margin: 15px 0;
+        
+        .ant-tag {
+            margin-inline-end: 20px;
+            padding-inline: 10px;
+            border-radius: 0;
+            font-size: 14px;
+            line-height: 30px;
+            cursor: pointer;
+            
+        }
+    }
+    .ant-table-cell{
+        .ant-btn-link{
+            padding: 4px;
+        }
+    }
+}
+
+```
+
+## 三、React高级
