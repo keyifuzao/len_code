@@ -1,4 +1,4 @@
-# React学习笔记
+#  React学习笔记
 
 ## 一、组件及脚手架常识
 
@@ -2379,6 +2379,7 @@ textarea{
 import React from 'react'
 import './Task.less'
 import { Button, Form, Input, Modal, Table, Tag, Popconfirm, DatePicker, message } from 'antd'//你想用哪个组件就导入哪个
+import { getTaskList, addTask, removeTask, completeTask} from '@api/index'
 
 //对日期处理方法
 const zero = function zero(text) {
@@ -2424,13 +2425,15 @@ class Task extend React.compontent{
     },{
         title:'操作',
         render:(_,record) => {
-            let { state } = record
+            let { id, state } = record
             return(
             	<>
-                	<Popconfirm title="您确定要删除此任务么？" onConfirm={()=>{}}>
+                	<Popconfirm title="您确定要删除此任务么？" 
+                        onConfirm={this.handleRemove.bind(this,id)}>
                     	<Button type="link">删除</Button>
                 	</Popconfirm>
-                	{+state !==2? <Popconfirm title="您确定把此任务设置成完成吗？" onConfirm={()=>{}}>
+                	{+state !==2? <Popconfirm title="您确定把此任务设置成完成吗？" 
+                                    	onConfirm={this.handleUpdate.bind(this,id)}>
                     	<Button type="link">完成</Button>
                 	</Popconfirm>:null}
             	</>
@@ -2449,6 +2452,7 @@ class Task extend React.compontent{
         tableLoading:false,
         modalVisible:false,
         confirmLoading:false,
+        selectedIndex:0,
     };
 	//对话框和表单处理的方法
 	closeModal =() =>{ //关闭对话框&清除表单内容
@@ -2460,15 +2464,90 @@ class Task extend React.compontent{
     }
     submit = async() => {  //新增任务
         try{
+            //表单校验
             await this.formIns.validateFields();
-        	message.success('表单校验通过')
+        	let { task, time} = this.formIns.getFieldsValue()
+            time=time.format('YYYY-MM-DD HH:mm:ss')
+            //向服务器发送请求
+            this.setState({ confirmLoading: true })
+            let { code } = await addTask(task, time)
+            if (+code !== 0 ){
+                message.error('很遗憾，当前操作失败，请稍后再试')
+            }else{
+                this.closeModal()
+                this.queryData()
+                message.success('恭喜您，当前操作成功')
+            }
+        }catch(_){
+            
+        }
+        this.setState({ confirmLoading: false })
+    }
+    //从服务器获取指定状态的任务
+    queryData = async() => {
+        let { selectedIndex } = this.state;
+        try{
+            this.setState({ tableLoading:true})
+        	let { code, list } = await getTaskList(selectedIndex)
+            if(+code!==0) list=[];
+            this.setState({
+                tableData: list
+            })
+        }catch(_){}
+        this.setState({ tableLoading:false})
+        
+    }
+    //选中切换状态
+    changeIndex= () => {
+        if(this.state.selectedIndex === index) return
+        this.setState({
+            selectedIndex: index
+        },()=>{
+ 	       this.queryData()         
+        })
+        //另一种方式
+        //flushSync(()=>{
+        //    this.setState({
+        //        selectedIndex: index
+        //    })
+        //})
+        //this.queryData() 
+    }
+    //删除
+    handleRemove = async(id) => {
+        try{
+            let { code } = await removeTask(id) 
+            if(+code !== 0){
+                message.error('很遗憾，操作失败，请稍后再试')
+            }else{
+                this.queryData()
+                message.success('恭喜您，操作成功！')
+            }
         }catch(_){
             
         }
     }
-    
+    //完成
+    handleUpdate = async(id) => {
+        try{
+            let { code } = await completeTask(id) 
+            if(+code !== 0){
+                message.error('很遗憾，操作失败，请稍后再试')
+            }else{
+                this.queryData()
+                message.success('恭喜您，操作成功！')
+            }
+        }catch(_){
+            
+        }
+    }
+    //周期函数
+    compontentDidMount(){
+        this.queryData
+    }
     render(){
-        let { tableData, tableLoading, modalVisible, confirmLoading } = this.state;
+        console.log('RENDER')
+        let { tableData, tableLoading, modalVisible, confirmLoading, selectedIndex } = this.state;
         <div className="task-box">
             <div className="header">
                 <h2 className='title'>TASK OA 系统任务管理系统</h2>
@@ -2479,9 +2558,14 @@ class Task extend React.compontent{
                     }}>新增任务</Button>
             </div>
             <div className='tag-box'>
-                <Tag color='#1677ff'>全部</Tag>
-                <Tag>未完成</Tag>
-                <Tag>已完成</Tag>                
+                {['全部','未完成','已完成'].map((item, index) => {
+                    return (
+                        <Tag key={ index } 
+                             color={ selectedIndex === index? '#1677ff' : '' } 
+                             onClick={this.changeIndex.bind(null,index)}
+                               >{ item }</Tag>
+                           )
+                })}             
             </div>
             <Table dataSource={ tableData } columns={ this.columns } loading={tableLoading} pagination={ false } rowKey='id' />
             <Modal title="新增任务窗口" open={ modalVisible } confirmLoading={ confirmLoading } keyboard= { false } maskClosable={ false } okText='确认提交' onCancel={ this.closeModal } onOk={ this.submin }>
@@ -2550,4 +2634,556 @@ export default Task
 
 ```
 
+```js
+// ./src/api/http.js
+import axios from 'axios';
+import qs from 'qs';
+import { message } from 'antd';
+import _ from '@/assets/utils';
+
+const http = axios.create({
+    baseUrl: '/api',
+    timeout:60000
+});
+http.defaults.transformRequest = data => {
+    if (_.isPlainObject(data)) data= qs.stringify(data);
+    return data;
+}
+http:interceptors.response.use(response => {
+    return response.data;
+},reason => {
+    message.error('当前网络繁忙，请您稍后再试')
+    return Promise.reject(reason)
+});
+export default http
+```
+
+```js
+// ./src/api/index.js
+import http from './http'
+
+//获得指定状态的任务信息
+export const getTaskList =(state=0) => {
+    return http.get('/getTaskList', {
+        params: {
+            state
+        }
+    })
+}
+
+//新增任务
+export const addTask = (task,time) => {
+    return http.post('/addTask',{
+        params:{
+            task,
+            time
+        }
+    })
+}
+
+//删除任务
+export const removeTask = (id) => {
+    return http.get('/removeTask',{
+        params:{
+            id
+        }
+    })
+}
+
+//完成任务
+export const completeTask = (id) => {
+    return http.get('/completeTask',{
+        params:{
+            id
+        }
+    })
+}
+```
+
+
+
 ## 三、React高级
+
+### 1、`React Hooks`组件开发
+
+`React Hooks`组件 就是基于`React`中新提供的`Hook`函数，可以让函数组件动态化
+
+- 基础`Hook`
+
+  - `useState` 使用状态管理
+  - `useEffect` 使用周期函数
+  - `useContext` 使用上下文
+
+- 额外的`Hook`
+
+  - `useReducer` `useState`的替代方案，借鉴`Redux`处理思想，管理更为复杂的状态和逻辑
+  - `useCallback` 构建缓存优化方案
+  - `useMemo` 构建缓存优化方案
+  - `useRef` 使用`ref`获取`DOM`
+  - `useImperativeHandle` 配合`forwardRef`（`ref`转发）一起使用
+  - `useLayoutEffect` 与`useEffect`相同，但会在所有的`DOM`变更之后同步调用`effect`
+
+  ...
+
+- 自定义`Hook`
+
+  ...
+
+### 2、`useState`函数
+
+`useState`：`React Hook` 函数之一，目的是在函数组件中使用状态，并且后期基于状态的修改，可以让组件更新
+
+```jsx
+let [num, setNum] = useState(initialValue) //返回是一个数组
+//执行useState，传递的initialValue是初始的状态值
+//执行这个方法，返回结果是一个数组:[状态值，修改状态的方法]
+//	这里num就是状态值，setNum就是修改状态的方法
+//执行setNum(value)
+//	修改状态值为value
+//  通知视图更新
+//函数组件(hook组件)不是类组件，所以没有实例的概念，调用组件不再是创建类的实例，而是把函数执行，产生一个私有上下文而已，在函数组件中不涉及this的处理
+```
+
+
+
+```jsx
+// ./src/index.jsx
+
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import Demo from './views/Demo';
+//使用ANTD组件库
+import {configProvider} from 'antd';
+import zhCN from 'antd/locale/zh_CN';
+import './index.less'
+
+const root = ReactDOM.createRoot(document.getElementById('root'))
+root.render(
+	<ConfigProvider locale={zhCN}>
+        <Demo />
+    </ConfigProvider>
+);
+```
+
+```less
+@import './assets/reset.min.css';
+
+//全局样式
+.ant-btn {
+	border-radius: 0;
+    
+    $.ant-btn-sm {
+        border-radius: 0
+    }
+}
+
+.ant-picker,
+.ant-input{
+    border-radius: 0;
+}
+
+textarea{
+    resize: none;
+}
+
+```
+
+
+
+```jsx
+// ./src/views/Demo.jsx
+
+import React, { useState } from 'react'
+import { Button } from 'antd'
+import './Demo.less'
+
+const Demo = function Demo(){
+    let [num, setNum] = useState(0)
+    
+    const handle = () => {
+        setNum(num+10)
+    }
+    
+    return (
+    	<div className= "demo">
+            <span className="num">{ num }</span>
+            <Button type="primary" size="small" onClick={ handle }>新增</Button>
+        </div>
+    )
+}
+//如果使用静态组件
+//const Demo = function Demo(){
+//    let n = 0
+//    return (
+//    	<div className= "demo">
+//            <span className="num">{n}</span>
+//            <Button type="primary" size="small" onClick={() => {
+//                    n += 10;
+//                }}>新增</Button>
+//        </div>
+//    )
+//}
+
+//如果使用类组件的写法
+//class Demo extends React.Component{
+//    state = {
+//        n:0
+//    }
+//    handle = () => {
+//        let {n} =this.state
+//        this.setState({
+//            n:n  +10
+//        })
+//    }
+//    render(){
+//        let {n} =this.state
+//        return(
+//           <div className= "demo">
+//                <span className="num">{ n }</span>
+//                <Button type="primary" size="small" onClick={handle}>新增</Button>
+//            </div>
+//        )
+//    }
+//}
+export default Demo
+```
+
+```less
+.demo {
+	box-sizing:border-box;
+	margin:10px auto;
+    padding: 10px;
+    width: 200px;
+    border: 1px solid #CCC;
+    
+    .num {
+        display: block;
+        font-size: 20px;
+        line-height: 40px;
+    }
+}
+```
+
+机制研究：
+
+函数组件的每一次渲染或者更新都是把函数重新执行，产生一个全新的私有上下文（作用域）
+
+> 内部的代码都必须重新执行
+>
+> > 第一次渲染组件把组件执行，传递属性
+> >
+> > 产生一个私有上下文，`EC(DEMO)`
+> >
+> > ```js
+> > //私有变量：
+> > num = 0
+> > setNum = 修改状态的函数
+> > handle = 函数
+> > //开始编译JSX视图，创建virtualDOM，最后渲染真实DOM
+> > 
+> > //点击新增按钮，执行handle方法
+> > //上级上下文EC(DEMO)
+> > //私有作用域，无变量，仅有一个setNum函数，但本作用域没有这个函数方法，就往上个作用查找此函数
+> > setNum(0+10) -> setNum(10)
+> > 
+> > //组件更新，再次执行组件函数
+> > //这一次执行useState并不是使用初始值0.而是返回新修改的状态值。let [num, setNum] = useState(10)
+> > //此时setNum获取的是修改状态的新函数，即每次点击，都会生成一个新的函数地址，与之前的函数并不是同一个。
+> > ```
+>
+> 涉及的函数需要重新的构建，这些函数的作用域（作用上下文），是第一次执行`DEMO`的产生的闭包。
+>
+> 每一次执行`DEMO`函数，也会把`useState`重新执行，但是执行`useState`，只有第一次，设置的初始值会生效，其余以后再执行，获取的状态都是最新的状态值，而不是初始值，返回的修改状态的方法，每一次都是返回一个新的。
+
+```jsx
+// ./src/views/Demo.jsx
+
+import React, { useState } from 'react'
+import { Button } from 'antd'
+import './Demo.less'
+
+const Demo = function Demo(){
+    let [num, setNum] = useState(0)
+    
+    const handle = () => {
+        setNum(num+10)
+    }
+    
+    return (
+    	<div className= "demo">
+            <span className="num">{ num }</span>
+            <Button type="primary" size="small" onClick={ handle }>新增</Button>
+        </div>
+    )
+}
+export default Demo
+```
+
+```js
+//useState的原理
+var _state;
+function useState(initialValue) {
+	if(typeof _state === 'undefined') _state = initialValue;
+	var setState = function setSTate(value){
+		_state = value
+		//通知视图更新
+	}
+	return [_state, setState]
+}
+```
+
+
+
+- 多个状态数据的更新处理
+
+```jsx
+// ./src/index.jsx
+
+import React ,{ useState } from 'react';
+import ReactDOM from 'react-dom/client';
+import Vote from './views/Vote';
+//使用ANTD组件库
+import {configProvider} from 'antd';
+import zhCN from 'antd/locale/zh_CN';
+import './index.less'
+
+const root = ReactDOM.createRoot(document.getElementById('root'))
+root.render(
+	<ConfigProvider locale={zhCN}>
+        <Vote title="React学好则需要JS功底！"/>
+    </ConfigProvider>
+);
+```
+
+```jsx
+//./src/views/Vote.jsx
+
+const Vote =function Vote(props){
+    //执行一次useState，把需要的状态信息都放在对象中
+    //  执行setState方法的时候，传递的是啥值，就把状态整体改为啥值
+    //  setState({
+    //		supNum:state.supNum + 1	
+	//  })
+    //  => 把状态值修改为{supNum:11}, oppNum成员就丢失了
+    //  => 并不会像类组件中的this.setState一样，不支持部分状态的更新
+    //  应该改为以下处理方案
+    //  setState({
+    //      ...state,  //在修改值之前，先把原有的所有状态，都展开赋值给新对象，再去修改要改动的那一项值即可
+    //      supNum:state.supNum+1
+    //  })
+    //官方建议，需要多个状态值，就把useState执行多次即可
+    //	let [supNum, setSupNum] = useState(10)
+    //	let [oppNum, setOppNum] = useState(5)
+    //	再根据每个独立的状态进行操作
+    let [state, setState] = useState({
+        supNum: 10,
+        oppNum: 5
+    })
+
+    const handle = (type)=>{
+       if(type==='sup'){
+           setState({
+               ...state,
+               supNum:state.supNum+1
+           })
+       }else if(type === 'opp'){
+           setState({
+               ...state,
+               oppNum:state.oppNum+1
+           })
+       }
+    }
+    return(
+    	<div className="vote-box">
+            <div className="header">
+                <h2 className="title">{ props.title }</h2>
+                <span>{ supNum + oppNum }</span>
+            </div>
+            <div className="main">
+                <p>支持人数：{ state.supNum }人</p>
+                <p>反对人数：{ state.oppNum }人</p>
+            </div>
+            <div className="footer">
+                <button onClick={handle.bind(null,'sup')}>支持</button>
+                <button onClick={handle.bind(null,'opp')}>不支持</button>
+            </div>
+        </div>
+    )
+}
+
+export default Vote
+```
+
+- `setState`的异步处理机制
+
+```jsx
+// ./src/views/Demo.jsx
+
+import React, { useState } from 'react'
+import { Button } from 'antd'
+import './Demo.less'
+import { flushSync } from 'react-dom'
+
+const Demo = function Demo(){
+    console.log('Render渲染') //执行一次，就渲染一次xyz，说明该setX,setY,setZ都是异步操作
+    let [x, setX] = useState(10)
+    let [y, setY] = useState(20)  
+    let [z, setZ] = useState(30)
+    
+    const handle = () => {
+        flushSync(() => {
+            setX(x + 1);
+            setY(y + 1);
+        });//遇到flushSync立即刷新更新队列，进行渲染。
+        setZ(z + 1);
+    }
+    
+    return (
+    	<div className= "demo">
+            <span className="num">x:{x}</span>
+            <span className="num">y:{y}</span>
+            <span className="num">z:{z}</span>
+            <Button type="primary" size="small" onClick={ handle }>新增</Button>
+        </div>
+    )
+}
+export default Demo
+```
+
+在`React18`中，我们基于`useState`创建出来的“修改状态的方法”，它们的执行也是异步的，原理：等同于类组件中的`this.setState`，基于异步操作&更新队列，实现状态的批处理，在任何地方修改状态，都是采用异步编程的
+
+在`React16`中，也和`this.setState`一样，放在合成事件/周期函数中，是异步的操作，放在其他异步操作（定时器，手动事件绑定）中，是同步的
+
+- 在循环体里的机制
+
+```jsx
+// ./src/views/Demo.jsx
+
+import React, { useState } from 'react'
+import { Button } from 'antd'
+import './Demo.less'
+import { flushSync } from 'react-dom'
+
+const Demo = function Demo(){
+    let [x, setX] = useState(10)
+
+    
+    const handle = () => {
+//		for(let i = 0 ; i<10; i++){
+//		flushSync(()=>{
+//        	setX(x+1)
+//    	})//1、利用flushSync更新视口，无论循环多少次，其结果都是只渲染一次，结果是10+1，原因是handle的作用域中只能调用x为10
+//            setX(x+1)
+//        }//2、即便不用flushSync，采用普通循环，这里无论循环多少次，其结果都是只渲染一次，结果是10+1，原理同上
+        
+        //setX(10)//3、这里如果更新的值和之前的状态值做比较，基于Object.is作比较，如果两次的值一样，则不会修改状态，可以理解为PureCompontentUpdate中做了浅比较和优化
+        
+        setX(prev => {//4、采用x=>x+1的函数可以在一次视窗更新内多次累加
+            //prev:储存的是上一次的状态值
+            console.log(prev)
+            return prev+1 //返回的信息是我们要修改的值
+        })
+    }
+    
+    return (
+    	<div className= "demo">
+            <span className="num">x:{x}</span>
+            <Button type="primary" size="small" onClick={ handle }>新增</Button>
+        </div>
+    )
+}
+export default Demo
+```
+
+### 3、`useEffect`函数
+
+在函数组件中，使用生命周期函数
+
+```jsx
+// ./src/views/Demo.jsx
+
+import React, { useState } from 'react'
+import { Button } from 'antd'
+import './Demo.less'
+
+const Demo = function Demo(){
+    
+    let [num, setNum] = useState(0)
+    let [x, setX] = useState(100)
+    
+    useEffect(()=>{
+        //获取最新的状态值
+        console.log('1'，num)
+    })
+    //1、useEffect(()=>{})第一次渲染完毕，执行()=>{},等价于 compontDidMount
+    //在组件每一次更新完毕后，也会执行()=>{}，等价于componentDidUpdate
+    
+    useEffect(()=>{
+        console.log('2'，num)
+    },[])
+    //2、useEffect(()=>{},[])只有在第一次渲染完毕后，才会执行()=>{}，每一次视图更新完毕后，()=>{}不再执行
+    //类似于 cpmponentDidMount
+    
+    useEffect(()=>{
+        console.log('3'，num)
+    },[num])
+    //3、useEffect(()=>{},[依赖的状态])，第一次渲染完毕后会执行()=>{}，当依赖的状态值（或者多个依赖状态的一个）发生改变，也会触发()=>{}，当时依赖的状态如果没有变化，在组件更新的时候，()=>{}不会执行
+    useEffect(()=>{
+        return() =>{
+            //获取的未改变前的值
+            console.log('4'，num)
+        }
+    },[num])
+    //4、返回的小函数，会在组件释放的时候执行，
+    //如果组件更新，会把未改变时候的小函数执行，
+    const handle = () => {
+		setNum(num + 1)
+    }
+    
+    return (
+    	<div className= "demo">
+            <span className="num">x:{x}</span>
+            <Button type="primary" size="small" onClick={ handle }>新增</Button>
+        </div>
+    )
+}
+export default Demo
+```
+
+第一次渲染的时候
+
+```js
+num = 0      setNum函数
+x=100          setX函数                            effect链表(通过MountEffect方法把callback依赖项加入链表中)
+
+useEffect(()=>{                        |		1、callback   没设置依赖
+    console.log('1',num)               |
+})									   |
+									   |
+useEffect(()=>{                        |        2、callback   无依赖
+    console.log('2'，num)              |
+},[])                                  |
+                                       |
+useEffect(()=>{                        |        3、callback   依赖num 
+    console.log('3'，num)              |
+},[num])                               |
+                                       |
+useEffect(()=>{                        |        callback    没设置依赖，没有任何输出
+    return() =>{                       |		4、返回一个小函数
+        console.log('4'，num)          |
+    }                                  | 
+},[num])                               |
+...    
+视图渲染完毕     基于updateEffect方法，通知effect链表中的callback按照要求执行
+
+输出
+第一次渲染
+1 0
+2 0
+3 0
+点击按钮更新组件
+1 1
+3 1
+4 0  上一个组件销毁，所以执行了4，4按照上一个组件的作用域进行执行结果
+```
+
