@@ -3121,7 +3121,7 @@ const Demo = function Demo(){
     useEffect(()=>{
         console.log('2'，num)
     },[])
-    //2、useEffect(()=>{},[])只有在第一次渲染完毕后，才会执行()=>{}，每一次视图更新完毕后，()=>{}不再执行
+    //2、useEffect(()=>{},[])只有在第一次渲染完毕后，才会执行()=>{}，每一次组件视图更新完毕后，()=>{}不再执行
     //类似于 cpmponentDidMount
     
     useEffect(()=>{
@@ -3186,4 +3186,362 @@ useEffect(()=>{                        |        callback    没设置依赖，�
 3 1
 4 0  上一个组件销毁，所以执行了4，4按照上一个组件的作用域进行执行结果
 ```
+
+```jsx
+// ./src/views/Demo.jsx
+
+import React, { useState,useEffect } from 'react'
+import { Button } from 'antd'
+import './Demo.less'
+
+const queryData=()=>{
+    return new Promise(resolve => {
+        setTimeout(()=>{
+            resolve([10,20,30])
+        },1000)
+    })
+}
+
+const Demo = function Demo(){
+    
+    let [num, setNum] = useState(0)
+    
+    //以下条件判断会报错
+    //useEffect 必须在函数的最外层上下文中调用，不能把其嵌入到条件判断，循环等操作语句中
+    //if(num>5){
+    //    useEffect(()=>{
+    //        console.log('ok')  //这样书写会报错
+    //    })
+    //}
+    //useEffect应该包括条件函数
+    useEffect(()=>{
+        if(num>5){
+            console.log('ok')
+        }
+    })
+    
+    //第一次渲染完毕后，从服务器异步获取数据
+    //useEffect如果设置返回值，则返回值必须是一个函数，（代表组件销毁时触发）；下面案例中，callback经过async修饰，返回的是一个promise实例，不符合要求
+    //useEffect(()=>{
+    //    let date = await queryData()
+    //    console.log('成功',data)
+    //},[])
+    useEffect(()=>{
+        queryData().then(data => {
+            console.log('成功', data)
+        })
+        //或者
+        //const next =async () => {
+        //    
+        //};
+        //next()
+    },[])
+    const handle = () => {
+		setNum(num + 1)
+    }
+    
+    return (
+    	<div className= "demo">
+            <span className="num">{num}</span>
+            <Button type="primary" size="small" onClick={ handle }>新增</Button>
+        </div>
+    )
+}
+export default Demo
+```
+
+- `useLayoutEffect()`
+
+```jsx
+// ./src/views/Demo.jsx
+
+import React, { useState, useEffect, useLayoutEffect } from 'react'
+import { Button } from 'antd'
+import './Demo.less'
+
+const styleObj = {
+    color: num === 0? 'red' : 'green'
+}
+const handele = () => {
+    
+}
+const Demo = function Demo(){
+    
+    let [num, setNum] = useState(0)
+    
+    return (
+    	<div className= "demo">
+            <span className="num" style={styleObj}>{num}</span>
+            <Button type="primary" size="small" onClick={ handle }>新增</Button>
+        </div>
+    )
+}
+export default Demo
+```
+
+
+
+## 四、精品文章
+
+### 1、`useEffect()`用法总结
+
+在 `React` 函数组件中，`useEffect`是处理 “副作用” 的核心工具。无论是数据请求、定时器管理，还是 `DOM` 操作，都离不开它。
+
+**先搞懂：什么是 “副作用”？**
+
+在 `React` 中，“副作用” 指的是**组件渲染过程之外的操作**—— 这些操作不直接参与 `UI` 渲染，但会影响组件或应用的状态。常见的副作用包括：
+
+- 发送网络请求（获取数据）
+- 操作 `DOM`（如自动聚焦输入框）
+- 设置定时器、订阅事件（如 `WebSocket`）
+- 手动修改页面标题
+
+组件的主要任务是 “渲染 `UI`”（正作用），而副作用需要在渲染完成后执行，否则会阻塞渲染，影响页面性能。`useEffect`的作用就是**将副作用与渲染过程分离**，确保渲染优先，副作用在渲染完成后再执行。
+
+```jsx
+function App() {
+  // 组件的主要任务：渲染UI
+  return <div>Hello World</div>;
+}
+```
+
+如果直接在组件函数中写副作用（比如网络请求），会导致这些操作在每次渲染时同步执行，可能阻塞 UI 更新。`useEffect`则能让副作用 “延后” 执行，不影响渲染效率。
+
+**声明一个副作用  生命周期时机解析**
+
+`useEffect`的基本语法很简单，包含三个核心部分：
+
+```jsx
+useEffect(() => {
+  // 1. 副作用逻辑（如请求数据、设置定时器）
+  console.log('执行副作用');
+
+  // 2. 清理函数（可选，用于回收资源）
+  return () => {
+    console.log('清理副作用');
+  };
+}, [
+  // 3. 依赖项数组（控制副作用何时执行）
+]);
+```
+
+**（1）副作用逻辑：要执行的操作**
+
+这部分是`useEffect`的核心，放需要执行的副作用代码。比如请求数据：
+
+```jsx
+useEffect(() => {
+  // 副作用：请求接口数据
+  const fetchData = async () => {
+    const response = await fetch('https://api.example.com/data');
+    const data = await response.json();
+    console.log('获取到数据：', data);
+  };
+  fetchData();
+});
+```
+
+**（2）清理函数：避免内存泄漏**
+
+清理函数是`useEffect`返回的一个函数，用于**回收副作用产生的资源**，避免组件卸载后资源残留（如定时器未清除、网络请求未取消）。
+
+```jsx
+useEffect(() => {
+  // 副作用：设置定时器
+  const timer = setInterval(() => {
+    console.log('定时器执行中...');
+  }, 1000);
+
+  // 清理函数：组件卸载或副作用重新执行前，清除定时器
+  return () => {
+    clearInterval(timer);
+    console.log('定时器已清除');
+  };
+}, []);
+```
+
+**什么时候执行清理函数？**
+
+- 组件卸载时（如页面跳转，组件被移除）
+- 副作用因依赖项变化而重新执行前（先清理旧的副作用，再执行新的）
+
+React 的函数组件不像 class 组件那样有明显的生命周期方法（如 `componentDidMount`、`componentDidUpdate`、`componentWillUnmount`）。
+ `useEffect` 就是函数组件中处理这些生命周期的“代理”。 根据依赖项的不同，`useEffect` 有以下三种生命周期“行为”：
+
+| 模式     | 依赖项    | 触发时机               | 对应生命周期                     |
+| -------- | --------- | ---------------------- | -------------------------------- |
+| 初始挂载 | `[]`      | 组件挂载完成后执行一次 | `componentDidMount`              |
+| 依赖更新 | `[count]` | `count` 更新时执行     | `componentDidUpdate`             |
+| 每次渲染 | 不写依赖  | 每次渲染后都执行       | `componentDidUpdate`（所有更新） |
+
+**（3）依赖项数组：控制副作用的执行时机**
+
+依赖项数组是`useEffect`最关键的部分，它决定了副作用 “什么时候执行”。
+
+**① 无依赖项数组：每次渲染后都执行**
+
+```jsx
+useEffect(() => {
+  console.log('每次渲染后都执行');
+});
+```
+
+这种写法下，副作用会在**初始渲染完成后执行**，且**每次组件更新（重新渲染）后都会再次执行**。适合需要 “实时响应所有变化” 的场景（如根据最新状态更新 `DOM`）。
+
+**② 空依赖项数组`[]`：仅在首次渲染后执行**
+
+```jsx
+useEffect(() => {
+  console.log('仅在首次渲染后执行一次');
+  // 常见场景：初始化数据请求、设置一次性事件监听
+}, []);
+```
+
+空依赖项表示 “没有依赖任何状态 / 变量”，因此副作用只会执行一次（相当于类组件的`componentDidMount`）。这是最常用的写法之一，尤其适合 “只需要初始化一次” 的操作。
+
+**③ 有依赖项的数组：依赖项变化时执行**
+
+```jsx
+const [userId, setUserId] = useState(1);
+
+useEffect(() => {
+  console.log(`userId变化为${userId}，重新执行副作用`);
+  // 场景：根据userId重新请求用户数据
+  fetch(`https://api.example.com/user/${userId}`);
+}, [userId]); // 依赖userId，只有userId变化时才执行
+```
+
+当数组中的依赖项（如`userId`）发生变化时，副作用会重新执行（相当于类组件的`componentDidUpdate`）。这能精准控制副作用的执行时机，避免不必要的重复操作。
+
+**常见问题**
+
+(1)为什么 `useEffect` 不能直接用 `async`？
+
+```jsx
+// 错误写法
+useEffect(async () => {
+  const data = await fetchData(); // 直接用async会报错
+}, []);
+```
+
+**原因**：`async`函数返回的是 `Promise` 对象，而`useEffect`要求回调函数返回 “清理函数” 或`undefined`。`Promise` 会被 `React` 视为 “无效的返回值”，导致警告。
+
+**正确写法**：在内部定义 async 函数并调用：
+
+```jsx
+useEffect(() => {
+  const fetchData = async () => { // 内部定义async函数
+    const data = await fetchData();
+  };
+  fetchData(); // 执行
+}, []);
+```
+
+**清理函数的执行时机**
+
+清理函数不仅在 “组件卸载时” 执行，还会在 “副作用因依赖项变化而重新执行前” 执行。比如：
+
+```jsx
+jsx 体验AI代码助手 代码解读复制代码const [id, setId] = useState(1);
+
+useEffect(() => {
+  console.log(`副作用执行，当前id：${id}`);
+  return () => {
+    console.log(`清理函数执行，旧id：${id}`);
+  };
+}, [id]);
+```
+
+当`id`从 1 变为 2 时，执行顺序是：
+
+1. 先执行旧的清理函数（打印 “旧 `id：1`”）
+2. 再执行新的副作用（打印 “当前 `id：2`”）
+
+这种机制确保每次副作用执行前，旧的资源已被清理，避免冲突。
+
+**实战场景：`useEffect` 的典型用法**
+
+数据请求：组件挂载后获取初始数据
+
+```jsx
+function UserList() {
+  const [users, setUsers] = useState([]);
+
+  useEffect(() => {
+    // 定义异步请求函数
+    const getUsers = async () => {
+      try {
+        const response = await fetch('https://api.example.com/users');
+        const data = await response.json();
+        setUsers(data); // 存储数据到状态
+      } catch (err) {
+        console.error('请求失败：', err);
+      }
+    };
+
+    getUsers(); // 执行请求
+  }, []); // 空依赖，仅执行一次
+
+  return (
+    <ul>
+      {users.map(user => (
+        <li key={user.id}>{user.name}</li>
+      ))}
+    </ul>
+  );
+}
+```
+
+定时器管理：避免组件卸载后继续执行
+
+```jsx
+function Timer() {
+  const [seconds, setSeconds] = useState(0);
+
+  useEffect(() => {
+    // 设置定时器，每秒更新秒数
+    const timer = setInterval(() => {
+      setSeconds(prev => prev + 1); // 函数式更新，不依赖当前seconds
+    }, 1000);
+
+    // 清理函数：组件卸载时清除定时器
+    return () => {
+      clearInterval(timer);
+    };
+  }, []); // 空依赖，定时器只初始化一次
+
+  return <div>已运行：{seconds}秒</div>;
+}
+```
+
+如果不清理定时器，当组件被卸载（比如切换页面）后，定时器仍会继续执行，导致内存泄漏。清理函数确保组件卸载时定时器被正确清除。
+
+条件性执行：依赖项变化时重新执行
+
+```jsx
+jsx 体验AI代码助手 代码解读复制代码function UserProfile({ userId }) {
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    // 当userId变化时，重新请求用户信息
+    const fetchUser = async () => {
+      const response = await fetch(`https://api.example.com/user/${userId}`);
+      const data = await response.json();
+      setUser(data);
+    };
+
+    fetchUser();
+
+    // 清理函数：取消未完成的请求（避免组件卸载后请求完成导致的问题）
+    return () => {
+      // 实际开发中可使用AbortController取消请求
+    };
+  }, [userId]); // 依赖userId，userId变化时重新执行
+
+  if (!user) return <div>加载中...</div>;
+  return <div>姓名：{user.name}</div>;
+}
+```
+
+当`userId`变化（比如从 1 变成 2）时，副作用会重新执行，请求新的用户数据。这种写法确保 `UI` 能实时响应依赖项的变化。
 
