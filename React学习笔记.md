@@ -3259,16 +3259,39 @@ import React, { useState, useEffect, useLayoutEffect } from 'react'
 import { Button } from 'antd'
 import './Demo.less'
 
-const styleObj = {
-    color: num === 0? 'red' : 'green'
-}
-const handele = () => {
-    
-}
 const Demo = function Demo(){
+    
+    console.log('Render')
     
     let [num, setNum] = useState(0)
     
+    //useLayoutEffect(()=>{   //会在virtualDOM的时候将uselayoutEffect加入链表，而useEffect在创建真实DOM后加入链表
+    //if (num === 0){
+    //    setNum(10)
+    //}
+    //},[num])
+    //uselayoutEffect会阻塞浏览器渲染真实DOM，优先执行Effect链表中的callback
+    //useEffect不会阻塞浏览器渲染，在渲染真实DOM的同时，去执行Effect链表中的callback
+    	//useLayoutEffect设置的callback要优于useEffect去执行！
+    	//在两者设置的callback中，依然可以获取DOM元素，（真实DOM对象已经创建，区别只是浏览器是否渲染）
+    	//如果在callback函数中又修改状态值
+    		//useEffect浏览器肯定是把第一次的真实DOM已经绘制了，再去渲染第二次的真实DOM
+    		//useLayoutEffect浏览器是把两次真实DOM渲染了，合并在一起渲染的
+    useLayoutEffect(()=>{
+        console.log('useLayoutEffect')
+        console.log(document.queryselector('num'))
+    })
+    useEffect(()=>{
+        console.log('useEffect')
+        console.log(document.queryselector('num'))
+    })
+
+    const styleObj = {
+        color: num === 0? 'red' : 'green'
+    }
+    const handele = () => {
+        setNum(0)
+    }
     return (
     	<div className= "demo">
             <span className="num" style={styleObj}>{num}</span>
@@ -3279,11 +3302,1355 @@ const Demo = function Demo(){
 export default Demo
 ```
 
+如果链表中的`callback`执行又修改了状态值，对于`useEffect`来讲，第一次真实`DOM`已经渲染，组建更新会重新渲染真实的`DOM`，所以频繁切换的时候，会出现闪烁的效果，对于`useLayoutEffect`来讲，第一次真实`DOM`还未渲染，遇到`callback`中修改了状态，试图立即更新，创建出新的`virtualDOM`，然后和上一次的`virtualDOM`合并在一起渲染出真实`DOM`，也就是此类需求下，真实`DOM`只渲染了一次，不会出现内容/样式的闪烁。
+
+### 4、`useRef`函数
+
+类组件中，我们基于`ref`可以做的事情：
+
+> 赋值给一个标签：获取`DOM`元素 
+>
+> > `ref="box"`
+> >
+> > `this.refs.box`
+>
+> 赋值给一个类子组件：获取子组件实例，可以基于实例调用子组件的属性和方法
+>
+> > `ref=(x=>this.box=x)`
+> >
+> > `this.box`获取
+>
+> 赋值给一个函数子组件：报错[需要配合`React.forwardRef`实现`ref`转发，获取子组件中的某一个`DOM`元素
+>
+> > `this.box = React.createRef()`
+> >
+> > `<h2 ref=(this.box)></h2>`
+> >
+> > `this.box.current`获取DOM元素
+
+- 方法一：基于函数方式
+
+```jsx
+// ./src/views/Demo.jsx
+
+import React, { useState, useEffect, useRef } from 'react'
+import { Button } from 'antd'
+import './Demo.less'
+
+const Demo = function Demo(){
+    let [num, setNum] = useState(0)
+	
+    //基于ref={函数}的方式，可以把创建的DOM元素或者（子组件的实例）赋值给box变量，不推荐使用
+    let box;
+    useEffect(()=>{
+       console.log(box) 
+    },[])
+    const styleObj = {
+        color: num === 0? 'red' : 'green'
+    }
+    const handele = () => {
+        setNum(0)
+    }
+    return (
+    	<div className= "demo">
+            <span className="num" style={styleObj} ref={x => box=x }>{num}</span>
+            <Button type="primary" size="small" onClick={ handle }>新增</Button>
+        </div>
+    )
+}
+export default Demo
+```
+
+- 方法二：基于`React.createRef()`
+
+```jsx
+// ./src/views/Demo.jsx
+
+import React, { useState, useEffect, useRef } from 'react'
+import { Button } from 'antd'
+import './Demo.less'
+
+const Demo = function Demo(){
+    let [num, setNum] = useState(0)
+    
+    //也可以基于React.createRef创建ref对象来获取想要的内容
+    let box =React.createRef()
+
+    useEffect(()=>{
+       console.log(box.current) 
+    },[])
+    const styleObj = {
+        color: num === 0? 'red' : 'green'
+    }
+    const handele = () => {
+        setNum(0)
+    }
+    return (
+    	<div className= "demo">
+            <span className="num" style={styleObj} ref={x => box}>{num}</span>
+            <Button type="primary" size="small" onClick={ handle }>新增</Button>
+        </div>
+    )
+}
+export default Demo
+```
+
+- 方法三：使用`hooks`函数
+
+```jsx
+// ./src/views/Demo.jsx
+
+import React, { useState, useEffect, useRef } from 'react'
+import { Button } from 'antd'
+import './Demo.less'
+
+const Demo = function Demo(){
+    let [num, setNum] = useState(0)
+    
+    //函数组件中，还可以基于 useRef Hook函数，创建一个ref对象
+    //	React.creatRef 也是创建ref对象，即可在类组件中使用，也可以在函数组件中使用
+    //	useRef 只能在函数组件中用
+    let box = useRef(null)
+
+    useEffect(()=>{
+       console.log(box.current) 
+    },[])
+    const styleObj = {
+        color: num === 0? 'red' : 'green'
+    }
+    const handele = () => {
+        setNum(0)
+    }
+    return (
+    	<div className= "demo">
+            <span className="num" style={styleObj} ref={box}>{num}</span>
+            <Button type="primary" size="small" onClick={ handle }>新增</Button>
+        </div>
+    )
+}
+export default Demo
+```
+
+- `createRef` Vs `useRef`
+
+```jsx
+// ./src/views/Demo.jsx
+
+let prev1,
+    prev2
+import React, { useState, useEffect, useRef } from 'react'
+import { Button } from 'antd'
+import './Demo.less'
+
+const Demo = function Demo(){
+    let [num, setNum] = useState(0)
+    let box1 = useRef(null),
+        box2 = React.createRef()
+	if(!prev1) {
+        //第一次Demo执行，把第一次创建的Ref对象赋值给变量
+        prev1 = box1;
+        prev2 = box2
+    }else{
+        //第二次Demo执行，我们验证一下，新创建的Ref对象，和之前第一次创建的Ref对象，是否一致
+        console.log(prev1 === box1) //true useRef在每一次组件更新的时候（函数重新执行），再次执行useRef方法的时候，不会创建新的Ref对象了，获得的还是第一次创建的那个ref对象
+        console.log(prev2 === box2) //false createRef在每一次组件更新的时候，都会创建一个全新的Ref对象出来，比较浪费性能
+    }
+    useEffect(()=>{
+       console.log(box1.current) 
+       console.log(box2.current)
+    },[])
+    const styleObj = {
+        color: num === 0? 'red' : 'green'
+    }
+    const handele = () => {
+        setNum(0)
+    }
+    return (
+    	<div className= "demo">
+            <span className="num" style={styleObj} ref={box1}>{num}</span>
+            <span className="num" style={styleObj} ref={box2}>{num}</span>
+            <Button type="primary" size="small" onClick={ handle }>新增</Button>
+        </div>
+    )
+}
+export default Demo
+```
+
+> [!NOTE]
+>
+> 总结：在类组件中，创建Ref对象，我们基于`React.createRef`处理；但是在函数组件中，为了保护性能，我们应该使用专属的`useRef`处理
+
+- `useImperativeHandle`函数
+
+```jsx
+// ./src/views/Demo.jsx
+import React, { useState, useEffect, useRef } from 'react'
+import { Button } from 'antd'
+import './Demo.less'
+
+//1、如果是类组件，直接获取的是ref实例
+class Child extends React,Component {
+    state = { x:1000 }
+    render(){
+        return (
+            <div className='child-box'>{ this.state.x }</div>
+        )
+    }
+}
+
+//2、如果是函数组件，需要通过forwardRef进行转发ref，直接调用ref，会报错，必须用forwardRef
+const Child = React.forwardRef(function Child(props,ref){
+    console.log(ref)  //在Demo中，调用Child的时候，传递的ref对象[x]
+    return (
+    	<div className='child-box'>
+            <span ref={ref}></span>
+        </div>
+    )
+})
+
+//3、如何实现子组件内部，基于forwardRef实现ref转发的同时，获取子组件内部的状态或者方法呢？
+//一个新的hook函数
+const Child = React.forwardRef(function Child(props,ref){
+    let [text, setText] = useState('你好世界')]
+    const submit = () => {
+        
+    }
+    
+    useImperativeHandle(ref, ()=>{
+        //在这里返回的内容，都可以被父组件的Ref对象获取到
+        return {
+            text,
+            submit
+        }
+    })
+    return (
+    	<div className='child-box'>
+            <span ref={ref}></span>
+        </div>
+    )
+})
+
+const Demo = function Demo(){
+	let x = useRef(null)
+
+    useEffect(()=>{
+        console.log(x.current)//这样就能拿到3中的text和submit属性了
+    },[])
+
+    return (
+    	<div className= "demo">
+			<child ref={x}/>
+        </div>
+    )
+}
+export default Demo
+```
+
+> [!NOTE]
+>
+> 基于forwardRef实现Ref转发，目的是获取子组件内部的某个元素
+>
+> 基于ref获取子组件的实例，这样基于实例可以调用子组件内部挂载到实例上的东西
+
+### 5、`TASK OA`系统改写
+
+```jsx
+// ./src/index.jsx
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import Task from './views/Task'
+//使用ANTD组件库
+import { ConfigProvider } from 'antd' //配置库
+import zhCN from 'antd/locale/zh_CN' //中文配置
+import './src/index.less'
+
+const root = ReactDOM.createRoot(document.getElementById('app'))
+root.render(
+	<ConfigProvider locale={ zhCN }>
+        <Task />
+    </ConfigProvider>
+)
+```
+
+```jsx
+// ./src/views/Task.jsx
+
+import React, { useState, useEffect, useRef }from 'react'
+import './Task.less'
+import { Button, Form, Input, Modal, Table, Tag, Popconfirm, DatePicker, message } from 'antd'//你想用哪个组件就导入哪个
+import { getTaskList, addTask, removeTask, completeTask} from '@api/index'
+
+//对日期处理方法
+const zero = function zero(text) {
+    text = String(text)
+    return text.length<2? '0'+text : text;
+}
+const formatTime = function formatTime(time){
+    let arr = time.match(/\d+/g)
+    let [,month,day,hours = '00',minutes = '00'] = arr
+    return `${zero(month)}-${zero(day)} ${zero(hours)}:${zero(minutes)}`
+}
+
+const Task = function Task(){
+    //表格列的数据
+    const columns = [{
+        title:'编号',
+        dataIndex:'id',
+        align: 'center',
+        width: '8%',
+    },{
+        title:'任务描述', 
+        dataIndex:'task',
+        ellipsis: true,
+        width: '50%',
+    },{
+        title:'状态',
+        dataIndex:'state',
+        align: 'center',
+        width: '10%',
+        render:text => {
+        	return +text===1?'未完成' : '已完成'	
+        }
+    },{
+        title:'完成时间',
+        dataIndex:'time',
+        align: 'center',
+        width: '15%',
+        render:(_, record) => {
+            let {state, time, complete} = record
+            if(+state === 2 ) time = complete
+            return formatTime(time)
+        }   
+    },{
+        title:'操作',
+        render:(_,record) => {
+            let { id, state } = record
+            return(
+            	<>
+                	<Popconfirm title="您确定要删除此任务么？" 
+                        onConfirm={handleRemove.bind(null,id)}>
+                    	<Button type="link">删除</Button>
+                	</Popconfirm>
+                	{+state !==2? <Popconfirm title="您确定把此任务设置成完成吗？" 
+                                    	onConfirm={handleUpdate.bind(null,id)}>
+                    	<Button type="link">完成</Button>
+                	</Popconfirm>:null}
+            	</>
+            )
+        }
+    }]
+    //初始组件的状态
+    let [selectedIndex, setSelectedIndex] =useState(0),
+        [tableData, setTableData]=useState([]),
+        [tableLoading, setTableLoading] = useState(false),
+        [modalVisible, setModalVisible] = useState(false),
+        [confirmLoading, setConfirmLoading] = useState(false),
+        formIns = useRef(null)
+    
+    const query = async() => {
+        try{
+            let {code, list } await getTaskList(selectedIndex)
+            if (+code !== 0 ) list = []
+            setTableData(list)
+        }catch(_){
+            setTableLodaing(false)
+        }
+    }
+    
+    useEffect(() => {
+       query() 
+    },[selectedIndex])//每次依赖变化时，也会发生请求
+        
+    const closeModal = () => {
+         setModalVisible(false);
+        setConfirmLoading(false);
+        formIns.resetFields();
+    }
+    
+    const submit = async() => {
+        try{
+            await.formIns.validateFields()
+            let {task,time} = formIns.getFieldsValue()
+            time = time.format('YYYY-MM-DD HH:mm:ss')
+            //表演校验通过，向服务器发送请求
+            setConfirmLoading(true)
+            let {code} =await addTask(task,time)
+            if (+code === 0){
+                closeModal()
+                query()
+                message.success('恭喜您，操作成功了')
+            }else{
+                message.error('很遗憾，操作失败了')
+            }
+        }catch(_){ }
+    }
+    
+    const RemoveHandle = (id) => {
+        try{
+            let { code } = await removeTask(id)
+            if(+code === 0){
+                query()
+                message.success('恭喜您，操作成功了')
+            }else{
+                
+            }
+        }catch(_){
+            message.error('很遗憾，操作失败了')
+        }
+    }
+    const handleUpdate = (id) => {
+        try{
+            let { code } = await completeTask(id)
+            if(+code=== 0){
+                query()
+                message.success('恭喜您，操作成功了')
+            }else{
+                
+            }
+        }catch(_){
+            message.error('很遗憾，操作失败了')
+        }
+    }
+    render(){
+        console.log('RENDER')
+        let { tableData, tableLoading, modalVisible, confirmLoading, selectedIndex } = this.state;
+        <div className="task-box">
+            <div className="header">
+                <h2 className='title'>TASK OA 系统任务管理系统</h2>
+                <Button type="primary" onClick={()=>{
+                        setModalVisible(true)
+                        })
+                    }}>新增任务</Button>
+            </div>
+            <div className='tag-box'>
+                {['全部','未完成','已完成'].map((item, index) => {
+                    return (
+                        <Tag key={ index } 
+                             color={ selectedIndex === selectedIndex? '#1677ff' : '' } 
+                             onClick={()=>{
+                                if(index === selectedIndex) return  //这一行可加可不加，react会自己判断，状态不会更新，视图也不会渲染。
+                                setSelectedIndex(index)
+                                query()
+                            }}
+                               >{ item }</Tag>
+                           )
+                })}             
+            </div>
+            
+            <Table dataSource={ tableData } 
+                columns={ columns } 
+                loading={ tableLoading } 
+                pagination={ false } 
+                rowKey='id' />
+            
+            <Modal title="新增任务窗口" 
+                open={ modalVisible } 
+                confirmLoading={ confirmLoading } 
+                keyboard= { false } 
+                maskClosable={ false } 
+                okText='确认提交' 
+                onCancel={ closeModal } 
+                onOk={ submit }>
+                <Form layout="vertical" 
+                    initialValues={{task: '',time:''}} 
+                    validateTigger="onBlur" 
+                    ref = { formIns }>
+                	<Form.Item ref={x => this.formInx = x} label="任务描述" name="task" rules={[
+                            {require: true,message:'任务描述必填'},
+                            {min:6,message:'输入的内容至少6位及以上'}
+                        ]}>
+                        <Input.TextArea rows={ 4 }></Input.TextArea>
+                    </Form.Item>
+                    <Form.Item label="预期完成时间" name="time" rule={[
+                            {require: true,message:'预期完成事件是必填项'}
+                        ]}>
+                        <DatePicker showTime />
+                    </Form.Item>
+                </Form>
+            </Modal>
+        </div>
+    }
+}
+export default Task
+```
+
+> [!NOTE]
+>
+> 函数组件中，遇到：修改某个状态后（视图更新后），想去做一些事情，而这些事情，需要用到新的修改的状态值，
+>
+> 此时，我们不能直接在代码的下面编写，或者把状态改成同步的，这些都不可以，因为只有在函数重新执行，产生的新的闭包中，才可以获取最新的状态值。
+>
+> --->基于`useEffect`设置状态的依赖，在依赖的状态发生改变后，去做要做的事情。
+>
+> 修改某个状态后，想去做一些事情，但是要处理的事情，和新的状态值没有关系，此时可以把修改的状态的操作，基于`flushSync`变为同步处理即可
+
+### 6、`useMemo`函数
+
+```jsx
+// ./views/Demo
+
+import React, { useState, useMemo } from 'react'
+import { Button } from 'antd'
+import './Demo.less'
+
+const Demo = function Demo(){
+    let [supNum, setSupNum] = useState(10),
+        [oppNum, setOppNum] = useState(5),
+        [x, setX] = useState(0),
+    
+     
+    //经过计算，算出支持比率
+    //let total = supNum + oppNum,
+    //    ratio = '--'
+    //if(tital > 0) ratio = (supNum/total*100).toFixed(2) + '%'
+    //函数组件每一次更新，都是把函数重新执行，产生一个新的闭包，内部代码也要重新执行一遍
+    //如果我们修改的是其他状态值，视图更新了，此逻辑没必要重新执行了（如果此逻辑需要执行的事件比较长，一定会影响视图更新的速度）
+    //诉求，在函数每一次重新执行的时候，如果此操作逻辑不应该去执行，只有依赖项发生改变，我们再去执行即可。
+    
+    //可以使用useMemo函数，上面函数换成下面执行
+    let ratio = useMemo(()=>{
+        let total = supNum + oppNum,
+            ratio = '--'
+        if(tital > 0) ratio = (supNum/total*100).toFixed(2) + '%'
+        return total
+    },[supNum,oppNum])
+        
+    return(
+    	<div className='vote-box'>
+            <div className='main'>
+                <p>支持人数：{supNum}人</p>
+                <p>反对人数：{oppNum}人</p>
+                <p>支持比例：{ratio}</p>
+                <p>x:{x}</p>
+            </div>
+            <div className='footer'>
+                <Button type='primary' onClick={()=>{
+                        setSupNum(supNum + 1)
+                    }}>支持</Button>
+                <Button type='primary' danger onClick={()=>{
+                        setOppNum(oppNum + 1)
+                    }}>反对</Button>
+                <Button onClick={()=>{
+                        setX(x+1)
+                    }}>干点别的事</Button>
+            </div>
+        </div>
+    )
+}
+
+export default Demo
+```
+
+> [!NOTE]
+>
+> ```
+> let xxx = useMemo(callback, [dependencies])
+> ```
+>
+> 第一次渲染组件的时候，`callback`会执行
+>
+> 后期只有依赖的状态值发生改变，`callback`才会再执行
+>
+> 每一次会把`callback`执行的结果赋值给`xxx`
+>
+> `useMemo`具备缓存的效果，再依赖的状态值没有发生改变，`callback`没有触发执行的时候，`xxx`获取的是上一次计算出来的结果
+
+`useMemo`就是一个优化的Hook函数，如果函数组件中，有消耗性能和事件的计算操作，则尽可能用`useMemo`缓存起来，设置对应的依赖，这样可以保证，当非依赖的状态发生改变，不会去处理一些必要的操作，提高组件更新的速度。
+
+### 7、`useCallback`函数
+
+```jsx
+// ./views/Demo
+
+import React, { useState, useCallback } from 'react'
+import { Button } from 'antd'
+import './Demo.less'
+
+let prev
+const Demo = function Demo(){
+    let [x, setX] = useState(0),
+
+    //const handle = () => {}//每次调用函数，handle都会创造新的地址，比如第一次：0x001，第二次：0x002
+    
+    //因此可以使用useCallback函数，如下
+    const handle = useCallback(()=>{
+        
+    })
+    //以下用于验证两次函数是不是同一个
+	if (!prev){
+        prev = handle
+    }else{
+        console.log(handle === prev);//结果为false，这个结果就是普通函数运行的结果，如果是使用useCallback,结果为true
+    }
+    //函数组件的每一次更新，都是把函数重新执行，产生一个新的闭包，在闭包中所有创建函数的操作，都会重新创建新的堆内存，也就是函数都会重新创建。
+    return(
+    	<div className='vote-box'>
+            <div className='main'>
+                <p>0</p>
+            </div>
+            <div className='footer'>
+                <Button type='primary' onClick={()=>{
+                        setX(x+1)
+                    }}>累加</Button>
+            </div>
+        </div>
+    )
+}
+
+export default Demo
+```
+
+> [!NOTE]
+>
+> ```js
+> const xxx = useCallback(callback, [dependencies])
+> ```
+>
+> 组件第一次渲染，`useCallback`执行，创建一个函数“`callback`”，赋值给`xxx`
+>
+> 组件后续每一次更新，判断依赖的状态值是否改变，如果改变，则重新创建新的函数堆，赋值给`xxx`，但是如果，依赖的状态没有更新（或者没有设置依赖“[]”），则`xxx`获取的一直是第一次创建的函数堆，不会创建新的函数出来
+>
+> 简单的来讲，`useCallback`可以保证，函数组件每一次更新，不再把里面的小函数重新重建，用的都是第一次创建的。
+
+> [!WARNING]
+>
+> `useCallback`不要乱用，并不是所有组件内部的函数，都拿其处理会更好！
+>
+> 虽然减少了堆内存的开辟，但是`useCallback`本身也有自己处理逻辑和缓存机制，这个也消耗时间啊
+
+- **什么时候用它呢**
+
+父组件嵌套子组件，父组件要把一个内部的函数，基于属性传递给子组件，此时传递的这个方法，我们基于`useCallback`处理以下会更好
+
+```jsx
+// ./views/Demo
+
+import React, { useState, useCallback } from 'react'
+import { Button } from 'antd'
+import './Demo.less'
+//以下是类组件情形
+class Child extends React.PureComponent {
+    render(){
+        console.log('child Render')
+        return(
+            <div>我是子组件</div>
+        )
+    }
+}
+
+//以下是函数组件的情形
+const Child = React.memo(function Child(props){
+    console.log('Child Render')
+    return(
+        <div>我是子组件</div>
+    )
+})
+
+//父组件
+//诉求：当父组件更新的时候，因为传递给子组件的属性仅仅是一个函数。特点：基本应该算是不变的，所以不想再让子组件也跟着更新！
+	//第一条：传递给子组件的属性（函数），每一次需要相同的堆内存地址（是一致的），基于useCallback处理！！
+	//第二条：在子组件内部也要做一个处理，验证父组件传递的属性是否发生改变，如果没有改变，则让子组件不能更新，有变化才需要更新，继承React.PureCompontent即可，在shouldCompontemntUpdate中堆新老属性做了浅比较！函数组件是基于React.memo函数，对新老传递属性做比较，如果不一致，才会把函数组件执行，如果一致，则不让子组件更新
+
+const Demo = function Demo(){
+    let [x, setX] = useState(0),
+    const handle = useCallback(()=>{
+        
+    })
+    return(
+    	<div className='vote-box'>
+            <div className='main'>
+                <p>0</p>
+            </div>
+            <div className='footer'>
+                <Button type='primary' onClick={()=>{
+                        setX(x+1)
+                    }}>累加</Button>
+            </div>
+        </div>
+    )
+}
+
+export default Demo
+```
+
+### 8、自定义`Hooks`函数
+
+自定义`Hook`：
+
+​	作用：提取封装一些公共的处理逻辑
+
+​	玩法：创建一个函数，名字需要是`useXxx`，后期就可以在组件中调用这个方法了
+
+```jsx
+import React, { useState, useEffect } from 'react'
+import { Button } from 'antd'
+import './Demo.less'
+
+const usePartialState = function usePartialState(initalValue){
+    let [state, setState] = useState(initalValue)
+    // setState:不支持部分状态更改的
+    // setPartial: 我们期望这个方法可以支持部分状态的更改
+    const setPartial =function setPartial(partialState){
+        setState({
+            ...state,
+            ...partialState
+        })
+        
+    }
+    return [state, setPartial]
+}
+
+//自定义hook，在组件第一次渲染完毕后，统一干点啥事情
+const useDidMount = function useDidMount(title){
+    if (!title) title = 'React'
+    //基于React内置的Hook函数，实现需求即可
+    useEffect(()=>{
+        document.title = title
+    },[])
+}
+
+const Demo = function Demo(){
+    let [state, setPartial] = usePartialState({
+        supNum:10,
+        oppNum:5
+    }),
+	
+    useDidMount('哈哈哈')
+    const handle = (type) => {
+        if (type === 'sup'){
+            setPartial({
+                supNum:state.supNum+1
+            })
+            return
+        }
+        setPartial({
+            oppNum: supNum.oppNum + 1
+        })
+    }	
+        
+    return(
+    	<div className='vote-box'>
+            <div className='main'>
+                <p>支持人数:{ state.supNum }人</p>
+                <p>反对人数:{ state.oppNum }人</p>
+            </div>
+            <div className='footer'>
+                <Button type='primary' onClick={handle.bind(null, 'sup')}>支持</Button>
+                <Button type='primary' danger onClick={handle.bind(null, 'opp')}>反对</Button>
+            </div>
+        </div>
+    )
+}
+
+export default Demo
+```
+
+### 9、组件通信
+
+- **类组件**
+
+父组件
+
+```jsx
+// ./src/views/Vote
+
+import React from 'react'
+import './vote.less'
+import VoteMain from './VoteMain'
+import VoteFooter from './VoteFooter'
+
+class Vote extends React.Component {
+    state = {
+        supNum:10,
+        oppNum:0
+    }
+    //设置为箭头函数，不论方法在哪执行，方法中的this永远都是Vote父组件的实例
+    change = (type) =>{
+        let { supNum, oppNum } = this.state
+        if(type === 'sup'){
+            this.setState({ supNum: supNum + 1 })
+        }
+        this.setState({ oppNum: oppNum + 1 })
+    }
+    
+    render(){
+        let { supNum, oppNum } = this.state;
+        return(
+        	<div className="vote-box">
+                <div className="header">
+                	<h2 className="title">React<h2>
+                    <span className="num">{ supNum + oppNum }<span>
+                </div>
+                <VoteMain supNum={ supNum } oppNum={ oppNum }/>
+                <VoteFooter change={this.change}/>
+            </div>
+        )
+    }
+}
+                        
+export default Vote
+```
+
+
+
+子组件"`main`"
+
+```jsx
+import React from 'react'
+import ProTypes from 'prop-types'
+
+class VoteMain extends React.Compontent{
+    //属性校验
+    static defaultProp = {
+        supNum: 0,
+        oppNum: 0
+    }
+    static propType = {
+        supNum: PropTypes.number,
+        oppNum: PropTypes.number
+    }
+    render(){
+        let { supNum, oppNum } = this.props
+        let ratio = '--'
+        let total = supNum + oppNum;
+        if (total > 0) ratio = (supNum/total *100 ).toFixed(2) + '%'
+        return(
+            <div className="main">
+                <p>支持人数：{supNum}人</p>
+                <p>反对人数：{oppNum}人</p>
+                <p>支持比率: {ratio}</p>
+            </div>
+        )
+    }
+}
+
+export default VoteMain
+```
+
+
+
+子组件"`footer`"
+
+```jsx
+import React from 'react'
+import { Button } from 'antd'
+import ProTypes from 'prop-types'
+
+class VoteFooter extends React.PureComponent{  //这里基于PureComponent进行了优化，使其在父组件更新时，不再反复调用change方法
+    //规则校验
+    static defaultProp = {
+    }
+    static propType = {
+		change:PropTypes.func.isRequired
+    }
+    render(){
+        let { change } = this.props
+        return(){
+            <div className="footer">
+                <Button type="primary" onClick={change.bind(null,'sup')}>支持</Button>
+                <Button type="primary" danger onClick={change.bind(null,'opp')}>反对</Button>
+            </div>
+        }
+    }
+}
+
+export default VoteFooter
+```
+
+> [!TIP]
+>
+> 父子组件通信
+>
+> 1、父亲想把信息传递给儿子 => 基于属性
+>
+> 2、儿子想改父亲的数据 => 父亲把修改自己数据的方法，基于”属性“传递给儿子，儿子执行方法即可！
+>
+> 3、父亲想把一些HTML结构传给儿子 => 基于属性中children插槽
+>
+> 4、父亲在调用儿子的时候，可以给儿子设置ref，以此获得儿子的实例（或者儿子中暴露的数据和方法）
+
+> [!IMPORTANT]
+>
+> 父子组件通信
+>
+> 1、就是以父组件为主导，基于属性是实现通信
+>
+> ​	原因：只有父组件可以调用子组件，此时才可以基于属性，把信息传递给子组件。父组件基于属性，可以把信息传递给子组件；父组件基于属性插槽，可以把HTML结构传递给子组件；父组件把方法基于属性传递给子组件，子组件把属性的方法执行。
+>
+> 2、父组件基于ref获取子组件实例（或者子组件基于`useImperativeHandle`暴露的数据和方法）
+>
+> 我们调用`Antd`组件库中的组件，就是经典的父子组件通信
+
+组件渲染的顺序：依赖于**深度优先**原则
+
+> 父组件第一次渲染
+>
+> 父组件`willMount` -> 父 `render` （子`willMount` -> 子`render` -> 子`didMount`） ->父`didMount`
+>
+> 父组件更新
+>
+> 父`shouldUpdate` -> 父`willUpdate` -> 父`render` （子`willReciveProps` -> 子`shouldUpdate` -> 子`willUpdate` -> 子`render` -> 子`didUpdate`）-> 父 `didUpdate`
+>
+> 我们完全可以在子组件内部做优化处理，验证传递的属性值有没有变化，如果没有变化，则禁止更新
+>
+> 父组件释放
+>
+> 父`willUnmount` -> 父释放中（子`willUnmount` -> 子释放） -> 父释放
+
+- **函数组件**
+
+父组件
+
+```jsx
+// ./src/views/Vote
+
+import React,{ useState, useCallback } from 'react'
+import './vote.less'
+import VoteMain from './VoteMain'
+import VoteFooter from './VoteFooter'
+
+const Vote = function Vote {
+    let [supNum, setSupNum] = useState(10),
+        [oppNum, setOppNum] = useState(0)
+    
+    const change = useCallback((type)=>{
+        if(type === 'sup'){
+            setSupNum(supNum + 1 )
+            return
+        }
+        setOppNum(oppNum + 1 )
+    },[supNum, oppNum])//如果没有设置依赖，则函数永远是在第一次组件渲染，产生的闭包中创建，函数中用到的信息永远是第一次闭包中的信息//本次优化没有实际意义，仅供使用参考，
+    
+    return(
+        <div className="vote-box">
+            <div className="header">
+                <h2 className="title">React<h2>
+                <span className="num">{ supNum + oppNum }<span>
+            </div>
+            <VoteMain supNum={ supNum } oppNum={ oppNum }/>
+            <VoteFooter change={change}/>
+        </div>
+    )
+}
+
+                   
+export default Vote
+```
+
+
+
+子组件"`main`"
+
+```jsx
+import React,{ useMemo } from 'react'
+import ProTypes from 'prop-types'
+
+const VoteMain = function VoteMain(props){
+    let { supNum, oppNum } = this.props
+    // 基于useMemo实现复杂逻辑的"计算缓存"
+    let ratio = useMemo(()=>{
+        let ratio = '--'
+        let total = supNum + oppNum;
+        if (total > 0) ratio = (supNum/total *100 ).toFixed(2) + '%'
+        return ratio
+    })
+    return(
+        <div className="main">
+            <p>支持人数：{supNum}人</p>
+            <p>反对人数：{oppNum}人</p>
+            <p>支持比率: {ratio}</p>
+        </div>
+    )
+}
+
+//属性校验
+VoteMain.defaultProp = {
+    supNum: 0,
+    oppNum: 0
+}
+VoteMain.propType = {
+    supNum: PropTypes.number,
+    oppNum: PropTypes.number
+}
+
+export default VoteMain
+```
+
+
+
+子组件"`footer`"
+
+```jsx
+import React,{ memo } from 'react'
+import { Button } from 'antd'
+import ProTypes from 'prop-types'
+
+const VoteFooter = function VoteFooter(){
+
+    let { change } = props
+    return(){
+        <div className="footer">
+            <Button type="primary" onClick={change.bind(null,'sup')}>支持</Button>
+            <Button type="primary" danger onClick={change.bind(null,'opp')}>反对</Button>
+        </div>
+    }
+};
+//属性校验规则
+VoteFooter.defaultProps={};
+VoteFooter.propTypes = {
+    change:PropTypes.func.isRequired
+};
+export default memo(VoteFooter)
+```
+
+### 10、`useContext`函数
+
+**类组件的使用方法**
+
+第一步：创建一个上下文对象，用来管理上下文信息
+
+```jsx
+// ./src/ThemeContext.js
+import React from 'react'
+
+const ThemeContext = React.createContext();
+export default ThemeContext
+```
+
+第二步：让祖先组件Vote，具备状态和修改状态的方法，同时还需要把这些信息，储存到上下文中
+
+```jsx
+// ./src/views/Vote
+
+import React from 'react'
+import './vote.less'
+import VoteMain from './VoteMain'
+import VoteFooter from './VoteFooter'
+import ThemeContext from '../ThemeContext'
+
+class Vote extends React.Component {
+    state = {
+        supNum:10,
+        oppNum:5
+    }
+    change = (type) =>{
+        let { supNum, oppNum } = this.state
+        if(type === 'sup'){
+            this.setState({ supNum: supNum + 1 })
+            return
+        }
+        this.setState({ oppNum: oppNum + 1 })
+    }
+    
+    render(){
+        let { supNum, oppNum } = this.state;
+        return(
+            <ThemeContext.Provider value={{  //基于上下文对象中，提供的Provider组件，用来向上下文存储信息：value属性指定的值就是要储存的信息，当祖先组件更新，render重新执行，会把最新的状态值，再次储存到上下文对象中
+                    supNum,
+                    oppNum,
+                    change:this.change
+                }}>
+                <div className="vote-box">
+                    <div className="header">
+                        <h2 className="title">React<h2>
+                        <span className="num">{ supNum + oppNum }<span>
+                    </div>
+                    <VoteMain />
+                    <VoteFooter />
+                </div>
+            </ThemeContext.provider>
+        )
+    }
+}
+                        
+export default Vote
+```
+
+第三步：在后代组件中，我们需要获取上下文信息
+
+`VoteMain`：获取信息绑定即可
+
+`VoteFooter`：获取信息，把获取的函数（修改组件状态的函数），再点击支持/反对的时候执行
+
+```jsx
+import React from 'react'
+import ProTypes from 'prop-types'
+import ThemeContext from '../ThemeContext'
+
+class VoteMain extends React.Compontent{
+    
+    static contextType = ThemeContext
+    render(){
+        let { supNum, oppNum } = this.context
+        let ratio = '--'
+        let total = supNum + oppNum;
+        if (total > 0) ratio = (supNum/total *100 ).toFixed(2) + '%'
+        return(
+            <div className="main">
+                <p>支持人数：{supNum}人</p>
+                <p>反对人数：{oppNum}人</p>
+                <p>支持比率: {ratio}</p>
+            </div>
+        )
+    }
+}
+
+export default VoteMain
+```
+
+> 导入创建的上下文对象
+>
+> 给类组件设置静态私有属性，`contextType` = 上下文
+>
+> 从`this.context`中获取需要的信息即可
+
+```jsx
+import React from 'react'
+import { Button } from 'antd'
+import ProTypes from 'prop-types'
+import ThemeContext from '../ThemeContext'
+
+class VoteFooter extends React.Component{
+
+    render(){
+        return(
+            <ThemeContext.Consumer>
+                {context => {
+                    let { change } = context
+                    <div className="footer">
+                        <Button type="primary" onClick={change.bind(null,'sup')}>支持</Button>
+                        <Button type="primary" danger onClick={change.bind(null,'opp')}>反对</Button>
+                    </div>          
+                }}
+            </ThemeContext.Consumer>
+        )
+    }
+}
+
+export default VoteFooter
+```
+
+> context中，储存了上下文中的所有信息
+>
+> 返回内容就是我们渲染的视图
+>
+> 获取祖先上下文的信息
+>
+> ```jsx
+> <ThemeContext.Consumer>
+>     {context => {
+>         let { XXX } = context
+>         <div ></div>          
+>     }}
+> </ThemeContext.Consumer>
+> ```
+
+**函数组件的使用方法**
+
+```jsx
+// ./src/views/Vote
+
+import React,{ useState } from 'react'
+import './vote.less'
+import VoteMain from './VoteMain'
+import VoteFooter from './VoteFooter'
+import ThemeContext from '../ThemeContext'
+
+const Vote = function Vote {
+    let [supNum, setSupNum] = useState(10),
+        [oppNum, setOppNum] = useState(5)
+    
+    const change = (type)=>{
+        if(type === 'sup'){
+            setSupNum(supNum + 1 )
+            return
+        }
+        setOppNum(oppNum + 1 )      
+    
+    return(
+        <ThemeContext.Provider value={{
+                supNum,
+                oppNum,
+                change
+            }}>
+            <div className="vote-box">
+                <div className="header">
+                    <h2 className="title">React</h2>
+                    <span className="num">{ supNum + oppNum }<span>
+                </div>
+                <VoteMain />
+                <VoteFooter />
+            </div>
+        </ThemeContext.Provider>
+    )
+}
+              
+export default Vote
+```
+
+方法一：使用`XXXContext.Consumer`解决
+
+```jsx
+import React from 'react'
+import ProTypes from 'prop-types'
+import ThemeContext from '../ThemeContext'
+
+const VoteMain = function VoteMain(){
+    return(
+        <ThemeContext.Consumer>
+            {context => {
+                let { supNum, oppNum } = context
+                <div className="main">
+                    <p>支持人数：{supNum}人</p>
+                    <p>反对人数：{oppNum}人</p>
+                </div>
+            }}
+        </ThemeContext.Consumer>
+    )
+}
+
+export default VoteMain
+```
+
+方法二：使用`useContext`函数
+
+```jsx
+import React,{ useContext } from 'react'
+import ProTypes from 'prop-types'
+import ThemeContext from '../ThemeContext'
+
+const VoteMain = function VoteMain(){
+    let {supNum,oppNum } = useContext(ThemeContext)
+    return(
+        <div className="main">
+            <p>支持人数：{supNum}人</p>
+            <p>反对人数：{oppNum}人</p>
+        </div>
+    )
+}
+
+export default VoteMain
+```
+
+### 11、React样式私有化处理
+
+```jsx
+// ./src/index.jsx
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import App from './App'
+//使用ANTD组件库
+import { ConfigProvider } from 'antd' //配置库
+import zhCN from 'antd/locale/zh_CN' //中文配置
+import './src/index.less'
+
+const root = ReactDOM.createRoot(document.getElementById('app'))
+root.render(
+	<ConfigProvider locale={ zhCN }>
+        <App />
+    </ConfigProvider>
+)
+```
+
+
+
+```jsx
+// ./src/app
+
+import React from 'react'
+import Nav from './views/Nav'
+import Menu from './views/Menu'
+
+const App = function App(){
+    return(
+    	<div className="home-box">
+            <Nav />
+            <Menu />
+            <div className="box">我是内容</div>
+        </div>
+    )
+}
+export default App
+```
+
+- `Nav`组件
+
+```jsx
+// ./src/views/Nav
+
+import React from 'react'
+
+const Nav = function Nav(){
+    return(
+    	<nav className='box'>
+            <h2 className="title">购物商城</h2>
+            <div className='list'>
+                <a herf=''>首页</a>
+                <a herf=''>秒杀</a>
+                <a herf=''>我的</a>
+            </div>
+        </nav>
+    )
+}
+export default Nav
+```
+
+```less
+// ./src/views/Nav.less
+.box{
+    background: lightblue;
+    
+    .title{
+        font-size: 20px;
+        color: lightcoral;
+    }
+    
+    .list{
+        font-size: 14px;
+        a{
+            color: #000;
+        }
+    }
+}
+```
+
+- `Menu`组件
+
+```jsx
+// ./src/views/Menu
+
+const Menu = function Menu(){
+    return(
+        <div className="box">
+        	<ul className="list">
+                <li>手机</li>
+                <li>电脑</li>
+                <li>家电</li>
+            </ul>
+        </div>
+    )
+}
+
+export default Menu
+```
+
+```less
+// ./src/views/Menu.less
+
+.box {
+    background: lightpink;
+    
+    .list{
+        font-size: 16px;
+    }
+}
+```
+
 
 
 ## 四、精品文章
 
-### 1、`useEffect()`用法总结
+### 1、`useEffect()` 用法总结
 
 在 `React` 函数组件中，`useEffect`是处理 “副作用” 的核心工具。无论是数据请求、定时器管理，还是 `DOM` 操作，都离不开它。
 
