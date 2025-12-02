@@ -4534,6 +4534,10 @@ export default VoteMain
 
 ### 11、React样式私有化处理
 
+以下样式存在问题，各组件之间的样式，可能会冲突，所以，如何保持各组件之间的样式不冲突，则是组件式开发中，都需要考虑的问题
+
+解决方法：样式私有化
+
 ```jsx
 // ./src/index.jsx
 import React from 'react'
@@ -4552,7 +4556,7 @@ root.render(
 )
 ```
 
-
+- `app`组件
 
 ```jsx
 // ./src/app
@@ -4646,9 +4650,533 @@ export default Menu
 }
 ```
 
+- 方案一：内联样式（基础方案）
+
+  - 每个组件的样式，不再基于样式类名处理了，而是使用内联式（行内样式）
+  - 这样确实可以保证组件和组件之间，元素和元素之间样式不会冲突
+  - 缺点：
+    - 不利于样式的复用，如果提取为一个通用样式对象，则没有代码提示
+    - 不能使用伪类
+    - 编译后的样式和结构混淆在一些，也不利于优化
+  - 这种方式绝对不能成为项目的主流处理方式，但是偶尔有一些需求，我们可以基于这种方式处理
+
+- 方案二：样式处理的技巧（大多数项目都在用）
+
+  - 基于样式表、样式类名这样的方式，但是需要人为有意识，有规范的，规范样式冲突问题，
+    - 首先保证每个组件最外层样式类名是不冲突的
+    - 命名方案：路径+组件名 作为组件外层容器的名字，例如：`.person-table-list-box{}`
+  - 后期组件内元素，其样式，都是基于less/sass/stylus嵌入到指定外层容器的类名之下去编写
+  - 缺点
+    - `Css`选择器都具有相同的全局作用域，很容易
+    - 性能低：预编译语言的嵌套，可能带来就是超长的选择器前缀，性能低
+    - 没有真正的动态样式：`CSS`表中难以实现动态设置样式
+
+- 方案三：`CSS` `Modules`
+
+  - 样式类名 `xxx.module.css`
+
+  ```jsx
+  import React from 'react'
+  import sty from './nav.module.css'
+  
+  const Nav = function Nav(){
+  	return(
+  		<nav className = {sty.body}>
+              <h2 className = {sty.title}>购物商城</h2>
+              <div className = {sty.list}>内容</div>
+  		</nav>
+  	)
+  }
+  ```
+  
+  - 我们可以基于`CSS Modules`实现样式的私有化管理，我们的样式都写在`xxx.module.css`文件中，这样的文件是`css`文件，不能使用`less/sass/stylus`这样的预编译语言，
+  - 我们在组件中，基于`ES6Module`模块规范引入进来，`import sty from './xxx.module.css'`，`sty`存储的就是一个对象，对象中包含着多个键值对，键就是我们之前再`css`中编写的样式类名，值就是`webpack`编译后的样式类名
+  - 我们编写的`css`样式也会被编译，所有之前的样式，也都是编译为混淆后的类名，命名规则：组件名--样式类名--Hash值
+  - 我们再组件中，所有元素的样式类，基于`sty.xxx`去操作
+  - 全局样式`:global(.clearfix){clear:both;}`增加`:global`属性，继承属性 `.link{composes: list;color:lightcoral;}`增加`composes`
+
+-  方案四：`React-JSS`
+
+  - `JSS`是一个`CSS`创作工具，它允许我们使用`javascript`以声明式，无冲突和可复用的方式描述样式，`JSS`是一种新的样式策略，`React-JSS`是一个框架集成，可以再`React`应用程序中使用`JSS`，它是一个单独的包，所以不需要安装`JSS`核心，只需要`React-JSS`包即可，`React-JSS`使用新的`Hooks API`将`JSS`与`React`结合
+
+    ```jsx
+    import React from 'react'
+    import { createUseStyles } from 'react-jss'
+    //基于createUseStyles方法，构建组件需要的样式，返回结果是一个自定义的Hook函数！
+    //对象中的每个成员就是创建的样式类名
+    //可以类似与less等预编译语言的“嵌套语法”，给后代/伪类设置样式
+    //自定义Hook执行，返回一个对象，对象包含
+    	//我们创建的样式类名，作为属性名
+    	//编译后的样式类名是唯一的，作为属性值
+    	//{box: 'box-0-2-1'}
+    
+    const useStyles = createUseStyles({
+        //设置box 就是样式类名
+        box:{
+            backgroundColor:'lightblue',
+            width: '300px'
+        },
+        title:{
+            fontSize:'20px',
+            color:'red',
+            '$:hover':{
+                color:'green'
+            }
+        },
+        list:props =>{ //2、对1中的props进行解析返回函数，进行编译
+            return{
+                '$ a':{
+                    fontSize: props.size + 'px',
+                    color: '#000'
+                }
+            }
+        }
+        list:{
+            '$ a':{
+                fontSize: props => props.size //3、对个别值进行props的解析
+                color: '#000'
+            }
+        }
+    })
+    
+    const Nav = function Nav(){
+        const {box, title ,list} = useStyles({
+            size:14,
+            color:'green'//1、这里可以传入参数，参数可以通过props参数拿到对应的属性
+        })
+        return(
+            <nav className={box}>
+                <h2 className={title}>购物商城</h2>
+                <div className={list}>
+                    <a>内容1</a>
+                </div>
+            </nav>
+        )
+    }
+    //===============================================================================
+    //因为useStyles是Hooks组件，如果使用的类组件引用，不能使用Hooks函数，可以参考下列方法解决代理解决
+    class Menu extends React.Component {
+        render(){
+            let { box, list } = this.props
+            return(
+            	<div className={box}>
+                    <ul className={list}>
+                        <li>手机</li>
+                        <li>电脑</li>
+                        <li>家电</li>
+                    </ul>
+                </div>
+            )
+        }
+    }
+    
+    const ProxyComponent = function ProxyComponent(component) {
+        return function HOC (props){
+            let sty = useStyles()
+            return <Component {...props} {...sty}>
+        }
+    }
+                
+    export default ProxyComponent(Menu)
+    ```
+
+    因为样式是写在`js`里面的，我们可以基于一些逻辑操作，实现样式动态化管理
+
+- **HOC高阶组件处理**
+
+  React高阶组件：利用JS中的闭包，柯理化函数，实现组件代理
+
+  我们可以在代理组件中，经过业务逻辑的处理，获取一些信息，最后基于属性等方案，传递给我们要最终渲染的组件
+
+  ```jsx
+  // ./src/index.jsx
+  import React from 'react'
+  import Demo from './views/Demo'
+  
+  const App = function App(){
+      return(
+      	<div className='home-box'>
+          	<Demo x={10} y={20} enable={true} />
+          </div>
+      )
+  }
+  ```
+
+  
+
+  ```jsx
+  // ./src/views/Demo
+  import React from 'react'
+  
+  const Demo = function Demo(props){
+      return (
+      	<div className='demo'>
+          	内容
+          </div>
+      )
+  }
+  // 执行ProxyTest方法，传递一个组件进来Component
+  const ProxyTest = function proxyTest(component){
+      //Component -> Demo
+      //HOC: higher-order-components
+      return function HOC(props){
+          let isUse = false
+          console.log(props)  //{x:10,y:20,enable:true}
+          //真实要渲染的是Demo组件，把获取的props要传递给Demo
+          return<Component {...props} isUse={ false }/>
+      }
+  }
+  
+  export default ProxyTest(Demo)
+  //把函数执行的返回结果（是一个组件），基于ES6Module规范导出，供App使用,在当前案例中，我们导出的是HOC
+  ```
+
+- 方案五：`styled-components`
+
+  ```jsx
+  // ./src/app
+  
+  import React from 'react'
+  import Nav from './views/Nav'
+  import Menu from './views/Menu'
+  
+  const App = function App(){
+      return(
+      	<div className="home-box">
+              <Nav />
+              <Menu />
+              <div className="box">我是内容</div>
+          </div>
+      )
+  }
+  export default App
+  ```
+
+  ```jsx
+  // ./src/views/Nav
+  
+  import React from 'react'
+  import { NavBox } from './src/views/NavStyle.js'
+  
+  const Nav = function Nav(){
+      return(
+      	<NavBox size={16} hover={'#ffe58f'}>
+              <h2 className="title">购物商城</h2>
+              <div className='list'>
+                  <a herf=''>首页</a>
+                  <a herf=''>秒杀</a>
+                  <a herf=''>我的</a>
+              </div>
+          </NavBox>
+      )
+  }
+  export default Nav
+  ```
+
+  ```js
+  // ./src/views/NavStyle.js
+  import styled from 'styled-components'
+  import { colorRed, colorBlue, titleSize } from './common'
+  // 基于“styled.标签名" 这种方式编写需要的样式，样式要写在"es6模板字符串中"，返回并且导出的结果是一个自定义的组件
+  //vscode添加插件 vscode-styled-components
+  export const NavBox = styled.nav`
+  	background-color: lightblue;
+  	width:300px;
+  	.title{
+  		font-size:${titleSize};
+  		color:${colorRed};
+  		$:hover{
+  			color:${colorBlue};
+  		}
+  	}
+  `
+  export const NavBarBox = styled.div.attrs(props => {
+      return { //设置默认值.attrs(props=>...)
+          size:props.size || 16
+      }
+  })`
+  	line-height:40px;
+  	a{
+  		font-size:${props=>props.size};
+  		color:#000;
+  		margin-right: 10px;
+  		
+  		&:hover{
+  			color: ${colorBlue}
+  		}
+  	}
+  `
+  ```
+
+  ```js
+  // ./src/views/common.js
+  
+  import styled from 'styled-components'
+  //编写一些通用的样式
+  export const colorRed = '#ff4d4f'
+  export const colorBlue = '#1677ff'
+  export const titleSize = '18px'
+  
+  export const CommonListBox = styled.ul`
+  	box-sizeing:border-box;
+  	padding: 10px;
+  	border: 1px solid #999;
+  	
+  	li {
+  		font-size:14px;
+  		line-height:30px;
+  		overflow:hidden;
+  		white-space:nowrap;
+  		text-overflow:ellipsis;
+  		$:hover{
+  			color: ${colorRed}
+  		}
+  	}
+  `
+  ```
+
+  > [!IMPORTANT]
+  >
+  > `React`样式私有化处理方案总结
+  >
+  > 1、行内样式 `style={{...}}`
+  >
+  > >  不适用于普通样式/主流样式的编写，特殊的需求可以基于其处理，样式需要基于逻辑动态计算，想基于行内样式提高样式权重
+  >
+  > 2、认为有意识有规范的，保证组件最外层样式类名的唯一性，组件内部的元素，都嵌入到这个样式样式类中编写！
+  >
+  > > 依赖于人（不能100%保证样式类的唯一性）
+  > >
+  > > 可能还会有部分样式，因为选择权重问题，发生一些冲突
+  >
+  > ------------------以下方法原理：基于技术方法，让组件和元素的样式类名唯一----------------------------
+  >
+  > 3、`cssModules`
+  >
+  > > 本质上还是写样式表，所有编写的样式都是静态的，用起来不是那么的方便，不能再使用嵌套等操作了
+  >
+  > 4、`css-in-js`思想：把`css`写在`js`中，这样可以基于`js`逻辑实现，样式的动态管理，实现通用样式的封装
+  >
+  > > `React-jss`
+  > >
+  > > `styled-components`（更简单）
 
 
-## 四、精品文章
+
+## 四、React生态
+
+### 1、`Redux`基础
+
+> 复合组件通信
+>
+> 1、父子通信（具备相同父亲和兄弟组件）：`prop`属性（基于`ref`）
+>
+> 2、祖先和后代（具备相同祖先的平行组件）：`context`上下文
+>
+> `redux/react-redux`
+>
+> 也是实现组件之间通信的技术（插件），不管任何类型的插件，都可以基于这种方法，实现组件通信，`redux`是一种公共状态管理方案
+>
+> 后期实战开发中，父子组件一般都是基于：`props/ref/redux`，其余组件的通信一般都是基于`redux`管理
+
+`Redux`库和工具
+
+- `React-Redux` 是官方的库，它让`React`组件与`Redux`有了交互，可以从`store`读取一些`state`，可以通过 `dispatch actions`来更新`store`
+- `Redux` `Toolkit` 推荐编写`Redux`逻辑的方法，包括我们认为对于构建`Redux`应用程序必不可少的包和程序，简化大多数`Redux`任务，防止了常见错误，使得我们编写`Redux`更加容易
+- `Redux` `DevTools`扩展 可以显示`Redux`储存中状态随时间变化的历史记录，允许我们调试应用程序
+
+步骤
+
+> 1、创建全局公共的容器，来储存各组件需要的公共信息
+>
+> > `const store = createStore([reducer])`
+> >
+> > 在创建的store容器中，存储两部分内容，公共状态：各组件需要共享/通信的信息，事件池：存放一些方法（让组件可以更新的方法），特点：当公共状态一旦发生改变，会默认立即通知事件池中的方法执行！！
+> >
+> > 这些方法的执行，主要目的就是让指定的组件更新，而组件已更新，就可以获取最新的公共状态信息进行渲染
+>
+> 2、在组件内部，获取公共状态信息，然后渲染
+>
+> > `store.getState() -> {supNum...,oppNum...}`
+>
+> 3、让“组件可以更新”的方法放在公共容器的事件池中！
+>
+> > `store.subscribe(函数)`
+> >
+> > 后期公共状态改了，事件池中的方法会按照顺序依次执行，也就是让对应的组件也更新，组件只要更新，就可以从store容器中获取最喜欢的状态渲染！
+>
+> 4、创建容器的时候，需要传递`reducer`
+>
+> > ```js
+> > let initial = { ... }//初始状态值
+> > const reducer = function reducer(state=initial,action){
+> > 	//state容器中的状态
+> > 	//action 派发的行为对象（必须具备type属性）
+> >     switch(action,type)
+> >         //根据传递的type值不同，修改不同的状态信息
+> >         ...
+> >     
+> > 	return state //返回的信息会替换store容器中的公共状态
+> > }
+> > ```
+> >
+> > 修改公共容器中的状态，为什么不能直接去修改
+> >
+> > 基于dispatch派发，通知reducer执行
+> >
+> > 在reducer中实现状态的更新
+>
+> 5、派发任务，通知reducer执行修改状态
+>
+> > ```jsx
+> > store.dispatch({
+> > 	type:xxx
+> > 	...
+> > })
+> > ```
+>
+> 除了`redux`这五步核心步骤之外，我们还需要一些其他的知识做配和！
+
+```js
+// ./src/store/index
+import { createStore} from 'redux'
+
+//管理员：修改store容器中的公共状态
+let inital = {
+    supNum: 10,
+    oppNum: 5
+}
+
+const reducer = function reducer(state = inital, action){
+	//state：储存store容器中的公共状态（最开始没有的时候，赋值初始状态initial）
+    //action： 每一次基于dispatch派发的时候，传递进来的行为对象（要求必须具备type属性，存储派发的行为标识）
+    //为了接下来的操作中，我们操作state，不会直接直接修改容器中的状态（要等到最后return的时候，我们需要先浅克隆
+    //state = { ... state}）
+    //接下来我们需要基于派发的行为标识，修改store容器中的公共状态信息
+    switch(action.type){
+            case "vote_sup";
+            	...//例如：state.supNum++
+            	break;
+            case "vote_opp";
+            	...//例如：state.oppNum++
+            	break;
+            default;
+    }
+    return state
+    //return的内容，会整体替换Store容器中的内容
+}
+
+//改写法位于组件内，这仅供演示
+//store.dispatch(
+//	{
+//        type:"do",
+//        step:10
+//    }
+//)
+
+//创建store公共容器
+const store = createStore(reducer)
+export default store
+```
+
+> [!IMPORTANT]
+>
+> 第一次派发的时候，`state`没有值，会把`initial`的值赋给`state`：第一次派发是在`redux`内部派发的，`type`值与`case`中都不相同，传递的`action.type`不会和任何逻辑匹配，返回的`state`就是初始值`initial`。目的就是把初始值赋值给`stat`e。
+>
+> 第二次派发的时候，`state`就是第一次的返回的初始值，`action`就是由`store.dispatch`派发的行为，由组件提供
+
+```jsx
+// ./src/views/Vote
+
+import React from 'react'
+import './vote.less'
+import VoteMain from './VoteMain'
+import VoteFooter from './VoteFooter'
+
+const Vote = function Vote {
+    let [supNum, setSupNum] = useState(10),
+        [oppNum, setOppNum] = useState(0)
+    
+    const change = (type)=>{
+    }
+    
+    return(
+        <div className="vote-box">
+            <div className="header">
+                <h2 className="title">React<h2>
+                <span className="num">{ supNum + oppNum }<span>
+            </div>
+            <VoteMain supNum={ supNum } oppNum={ oppNum }/>
+            <VoteFooter change={change}/>
+        </div>
+    )
+}
+
+                   
+export default Vote
+```
+
+```jsx
+import React,{ useMemo } from 'react'
+import ProTypes from 'prop-types'
+
+const VoteMain = function VoteMain(props){
+    let { supNum, oppNum } = this.props
+    // 基于useMemo实现复杂逻辑的"计算缓存"
+    let ratio = useMemo(()=>{
+        let ratio = '--'
+        let total = supNum + oppNum;
+        if (total > 0) ratio = (supNum/total *100 ).toFixed(2) + '%'
+        return ratio
+    })
+    return(
+        <div className="main">
+            <p>支持人数：{supNum}人</p>
+            <p>反对人数：{oppNum}人</p>
+            <p>支持比率: {ratio}</p>
+        </div>
+    )
+}
+
+//属性校验
+VoteMain.defaultProp = {
+    supNum: 0,
+    oppNum: 0
+}
+VoteMain.propType = {
+    supNum: PropTypes.number,
+    oppNum: PropTypes.number
+}
+
+export default VoteMain
+```
+
+```jsx
+import React,{ memo } from 'react'
+import { Button } from 'antd'
+import ProTypes from 'prop-types'
+
+const VoteFooter = function VoteFooter(){
+
+    let { change } = props
+    return(){
+        <div className="footer">
+            <Button type="primary" onClick={change.bind(null,'sup')}>支持</Button>
+            <Button type="primary" danger onClick={change.bind(null,'opp')}>反对</Button>
+        </div>
+    }
+};
+//属性校验规则
+VoteFooter.defaultProps={};
+VoteFooter.propTypes = {
+    change:PropTypes.func.isRequired
+};
+export default memo(VoteFooter)
+```
+
+
+
+## 五、精品文章
 
 ### 1、`useEffect()` 用法总结
 
