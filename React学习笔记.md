@@ -5037,6 +5037,8 @@ export default Menu
 >
 > 除了`redux`这五步核心步骤之外，我们还需要一些其他的知识做配和！
 
+为了在各个组件中，都可以把创建的`store`获取到，我们可以基于上下文方案，在`index.jsx`中，基于`ThemeContext.Provider`把创建的`store`放在上下文中，因为所有组件最后都是在`index.jsx`中渲染，所有组件都可以理解为`index.jsx`的后代组件，基于上下文方案，获取在上下文中存储的`store`就可以了
+
 ```js
 // ./src/store/index
 import { createStore} from 'redux'
@@ -5086,28 +5088,78 @@ export default store
 > 第二次派发的时候，`state`就是第一次的返回的初始值，`action`就是由`store.dispatch`派发的行为，由组件提供
 
 ```jsx
-// ./src/views/Vote
+// ./src/index.jsx
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import Vote from './views/Vote'
+//使用ANTD组件库
+import { ConfigProvider } from 'antd' //配置库
+import zhCN from 'antd/locale/zh_CN' //中文配置
+import './src/index.less'
+//Redux
+import store from './store'
+import { ThemeContext } from './ThemeContext'
+const root = ReactDOM.createRoot(document.getElementById('app'))
+root.render(
+	<ConfigProvider locale={ zhCN }>
+        <ThemeContext.provider value = {{
+                store  //存入store对象，基于上下文对象的Provider，把创建的store放在祖先的上下文中
+            }}>
+        	<Vote />
+        </ThemeContext.provider>
+    </ConfigProvider>
+)
+```
+
+```jsx
+// ./src/ThemeContext.js
 
 import React from 'react'
+
+const ThemeContext = React.createContext()
+export default ThemeContext
+```
+
+
+
+```jsx
+// ./src/views/Vote
+
+import React, { useContext, useState, useEffect } from 'react'
+import ThemeContext from '../ThemeContext'
+
 import './vote.less'
 import VoteMain from './VoteMain'
 import VoteFooter from './VoteFooter'
 
 const Vote = function Vote {
-    let [supNum, setSupNum] = useState(10),
-        [oppNum, setOppNum] = useState(0)
+	const { store } = useContext(ThemeContext)
+    //获取容器中的公共状态
+   	console.log(store.getState())
     
-    const change = (type)=>{
+    //组件第一次渲染完毕后，会让组件更新的方法，放在store的事件池中
+    let [ num, setNum ] = useState(0)
+    const update = () => {
+        setNum(num + 1)
     }
+    useEffect(()=>{//每一次组件更新，都会把最新的创建的update放入事件池中，可以时刻保证update在上级上下文是最新的闭包，[num]是最新的状态
+        //let unsubscribe = store.subscribe(让组件更新的方法)
+        //把让组件更新的方法放在store的事件池中
+        //返回的unsubscribe方法执行，可以把刚才放入事件池中的方法移除掉
+       let unsubscribe = store.subscribe(update) 
+       return () => {
+       		unsubscribe()//把上一次组件释放的时候，把上一次放在事件池中的方法移除掉
+       }
+    },[num])
     
     return(
         <div className="vote-box">
             <div className="header">
                 <h2 className="title">React<h2>
-                <span className="num">{ supNum + oppNum }<span>
+                <span className="num">{supNum + oppNum}<span>
             </div>
-            <VoteMain supNum={ supNum } oppNum={ oppNum }/>
-            <VoteFooter change={change}/>
+            <VoteMain />
+            <VoteFooter />
         </div>
     )
 }
@@ -5117,11 +5169,14 @@ export default Vote
 ```
 
 ```jsx
-import React,{ useMemo } from 'react'
+// ./src/views/VoteMain
+import React,{ useMemo,useContext } from 'react'
 import ProTypes from 'prop-types'
+import ThemeContext from '../ThemeContext'
 
 const VoteMain = function VoteMain(props){
-    let { supNum, oppNum } = this.props
+    const { store } = useContext(ThemeContext)
+    //...
     // 基于useMemo实现复杂逻辑的"计算缓存"
     let ratio = useMemo(()=>{
         let ratio = '--'
@@ -5149,20 +5204,57 @@ VoteMain.propType = {
 }
 
 export default VoteMain
+///类组件方式====================================================================================
+import React,{ useMemo } from 'react'
+import ProTypes from 'prop-types'
+import ThemeContext from './/ThemeContext'
+
+class VoteMain extends React.Component {
+    static contextType = ThemeContext
+    
+	render(){
+        const { store }=this.context
+        let { supNum, oppNum } = store.getState()//获取公共状态信息绑定
+        
+        return(
+            <div className="main">
+                <p>支持人数：{supNum}人</p>
+                <p>反对人数：{oppNum}人</p>
+            </div>
+        )
+    }
+    
+    componentDidMount(){
+        const { store } = this.context;
+        store.subscribe(() => {
+            this.forceUpdate()  //使用forceUpdate根据store变化，强制更新即可
+        })
+    }
+}
 ```
 
 ```jsx
-import React,{ memo } from 'react'
+// ./src/views/VoteFooter
+import React,{ memo, useContext } from 'react'
 import { Button } from 'antd'
 import ProTypes from 'prop-types'
+import ThemeContext from './/ThemeContext'
 
 const VoteFooter = function VoteFooter(){
+	const { store } = useContext(ThemeContext)
 
-    let { change } = props
     return(){
         <div className="footer">
-            <Button type="primary" onClick={change.bind(null,'sup')}>支持</Button>
-            <Button type="primary" danger onClick={change.bind(null,'opp')}>反对</Button>
+            <Button type="primary" onClick={()=>{
+                    store.dispatch({
+                        type:'vote_sup'
+                    })
+                }}>支持</Button>
+            <Button type="primary" danger onClick={()=>{
+                    store.dispatch({
+                        type:'vote_opp'
+                    })
+                }}}>反对</Button>
         </div>
     }
 };
@@ -5173,6 +5265,886 @@ VoteFooter.propTypes = {
 };
 export default memo(VoteFooter)
 ```
+
+### 2、`Redux`源码分析
+
+```js
+// ./src/myRedux
+//实现Redux的部分源码
+import _ from './assets/utils'
+
+const createStore = function createStore(reducer){
+    if(typeof reducer !== 'function') throw new typeError('reducer not to be a function')
+
+    let state,//存放公共状态
+        listeners = [];//事件池
+    //获取公共状态的方法
+    const getState = function getState(){
+        //返回公共信息即可
+        return state
+    }
+    //向事件池中加入组件更新的方法
+    const subscribe = function sunscribe(listener){
+        //规则校验
+        if(typeof listener !== 'function') throw new TypeError('listerner is not function')
+        //把传入的方法（让组件更新的方法）加入到事件池，需要做去重处理
+        if(!listeners.includes(listener)){
+        	listener.push(listener)
+        }
+        //返回一个从是事件池中，移除方法的函数
+        return function unsubscribe(){
+            let index = listeners.indexOf(listener)
+            listeners.splice(index, 1)
+        }
+    }
+    //派发任务通知Reducer执行
+    const dispatch = function dispatch(action){
+        //规则校验
+        if(!_.isPlainObject(action)) throw new typeError('action must be plain onjects')
+        if(typeof action.type === 'undefined') throw new typeError('action may not have an undefined type property')
+        //把reducer执行,传递：公共状态，行为对象。，接收执行的返回值，替换公共状态
+        state = reducer(state，action)
+        
+        //当状态更改，我们还需要把事件池中的方法执行
+        linteners.forEach(listener => {
+            listener()
+        })
+        
+        return action
+    }  
+    
+    //redux内部会默认进行一次dispatch派发，目的就是给公共容器中的状态赋值初始值
+	dispatch({
+        type:symbol()
+    })
+    //返回创建的store对象
+    return {
+        getState,
+        subscribe,
+        dispatch
+    }
+    
+}
+```
+
+### 3、`Redux`操作流程
+
+- 为什么不直接修改store里面的公共状态，而是采用对象全覆盖的方式
+
+  如果直接修改，那么修改的逻辑是写在各个组件中的
+
+  1、不利于逻辑的复用
+
+  2、不利于维护和管理
+
+**第一步**：创建store容器
+
+```js
+// ./src/store/index
+import { createStore } from 'redux'
+
+const initialState = {
+    //...
+    item:'项目1'
+    //...
+}
+const reducer = function reducer(state = initialState, action){
+    state =deepClone(state)//deepClone为自造函数，用于深克隆，deepClone需要自己写，这里直接引用名字
+    
+    switch(action.type){
+        case "操作1" :
+            //...(修改行为)
+            break;
+        case "操作2" :
+            //...(修改行为)
+            break;
+       	default;
+    }
+    
+    return state
+}
+
+const store = createStore(reducer)
+export default store
+```
+
+**第二步**：使用`React.createContext()`函数创建全局数据通信组件
+
+```js
+// ./src/ThemeContext.js
+import React from 'react'
+
+const ThemeContext = React.creatContext()
+export default ThemeContext
+```
+
+**第三部**：将`store`对象通过组件的`XxxContext.Provider`函数共享到全局
+
+```jsx
+// ./src/index.jsx
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import Item from './views/Item'
+
+//导入redux需要的组件
+import ThemeContext from './src/ThemeContext'
+import store from './store/index'
+
+const root = ReactDOM.createRoot(document.getElementById('app'))
+root.render(
+    <ThemeContext.Provider value={{store}}> {/*通过value进行赋值共享*/}
+        	<Item />
+    </ThemeContext.Provider>
+)
+```
+
+**第四步**：在组件中导入通过`useContext`函数导入`store`，再通过`store`解构出变量供组件使用
+
+函数组件的操作方式
+
+```jsx
+// ./src/views/Item
+import ThemeContext from './src/ThemeContext'
+import React, {useContext, useEffect, useState} from 'react'
+import Button from './src/views/Button'
+
+const Item = function Item(){
+	const { store } = useContext(ThemeContext)
+    const { item, ... } = store.getState()
+    
+    //视口更新的办法：例如：let [, forceUpdate] = useState(0)
+    useEffect (()=>{
+        store.subscribe(()=>{
+            //视口更新的方法
+            //forceUpdate(+new Date())
+        })
+    },["视口跟新的依赖(视情况添加，示例方法可不用加)"])
+    return(
+    	<div className="itemName">
+            { item }
+        </div>
+        <Button />
+    )
+}
+
+export default Item
+```
+
+类组件的操作方式
+
+```jsx
+// ./src/views/Button
+import ThemeContext from './src/ThemeContext'
+import React from 'react'
+import Button from './src/views/Button'
+
+class Item extends React.Compontent(){
+	static contextType = ThemeContext
+    
+    render(){
+        const { store } = this.context
+        const { item, ... } = store.getState()
+        
+        return(
+            <div className="itemName">
+                { item }
+            </div>
+            <Button />
+        )
+    }
+    
+    compontentDidMount(){  //在组件卸载的时候，通过store订阅的方式，监控store的state变化，一旦state变化，通知订阅函数（subscribe）更新指定函数，这里的指定函数应该是可以让视图更新的方法，在类组件中，通常使用forceUpdate进行强制视口更新
+        const { store } = this.context
+        store.subscribe(()=>{
+            this.forceUpdate()
+        })
+    }
+}
+
+export default Item
+```
+
+将方法同步到行为组件中
+
+```jsx
+// ./src/views/Button
+import react, {useContext, useState} from 'react'
+import ThemeContext from './src/ThemeContext'
+
+const Button = function Button(){
+    const { store } = useContext(ThemeContext)
+    const { item, ... } = store.getState()
+    const handleClick = () =>{
+        store.dispatch({
+            //...
+            type: "操作1"//必须项
+            //...
+        })
+    }
+    
+    return(
+    	<>
+        	<button onClick={ handleClick }>按钮</button>
+        </>
+    )
+}
+```
+
+### 4、`reducer`的拆分与合并
+
+在真正的项目中，我们一定会把状态和reducer的管理，按照模块化进行划分
+
+- reducer工程化开发
+  - 按照模块，把reducer进行单独管理，每个模块都有自己的reducer；最后我们还要把所有的reducer合并，合并成一个，赋值给我们创建的store
+
+**总的`reducer`**
+
+```jsx
+//新建reducers文件夹，新建index文件，合并各个模块的reducer
+//合并各个模块的reducer，最后创建出一个总的reducer,使用combineReducers
+// ./src/reducers/index
+import { combineReducers } from 'redux'
+import voteReducer from './voteReducer'
+import personalReducer from './personalReducer'
+
+const reducer = combineReducers({
+    vote: voteReducer,
+    personal: personalReducer
+})
+
+//在其他地方引用的reducer中的state按照自己命名的方式进行管理
+//store.getState().vote才是vote中的对象
+//state = {
+//	vote:{
+//        val:'变量1'
+//    },
+//  personal:{
+//        val:'变量1'
+//    }
+//}
+```
+
+**分的`reducer`**
+
+```js
+//在reducers文件夹下，新建personalReducer文件
+// ./src/reducers/personalReducer
+
+const initialState = {
+    val:'变量1'
+    ...
+}
+
+const personalReducer = function personalReducer(state= initialState, action){
+    state=deepClone(state)  //这里的deepclone为深克隆函数，需要自己写，这里仅引用名称，表示这里已经进行深克隆处理了
+    switch(state.type){
+        case "项目1":
+            //操作val
+            break;
+        case "项目2":
+            //操作val
+            break;
+        ...
+        default;
+    }
+    
+    return state
+}
+
+export default personalReducer
+```
+
+**分的`reducer`**
+
+```js
+//在reducers文件夹下，新建voteReducer文件
+// ./src/reducers/voteReducer
+
+const initialState = {
+    val:'变量1'
+    ...
+}
+
+const voteReducer = function voteReducer(state= initialState, action){
+    state=deepClone(state)  //这里的deepclone为深克隆函数，需要自己写，这里仅引用名称，表示这里已经进行深克隆处理了
+    switch(state.type){
+        case "项目1":
+            //操作val
+            break;
+        case "项目2":
+            //操作val
+            break;
+        ...
+        default;
+    }
+    
+    return state
+}
+
+export default voteReducer
+```
+
+**`store`中引用**
+
+```jsx
+// ./src/store/index
+import { createStore } from 'redux'
+import reducer from './reducer'
+
+const store = createStore(reducer)
+export default store
+```
+
+**组件中使用**
+
+状态的获取
+
+```jsx
+// ./src/views/Item
+import ThemeContext from './src/ThemeContext'
+import React, {useContext, useEffect, useState} from 'react'
+import Button from './src/views/Button'
+
+const Item = function Item(){
+	const { store } = useContext(ThemeContext)
+    const { item, ... } = store.getState().vote//对应的名字
+    //...
+}
+```
+
+方法的派发
+
+```jsx
+// ./src/views/Button
+import react, {useContext, useState} from 'react'
+import ThemeContext from './src/ThemeContext'
+
+const Button = function Button(){
+    const { store } = useContext(ThemeContext)
+    const { item, ... } = store.getState()
+    const handleClick = () =>{
+        store.dispatch({
+            //...
+            type: "操作1"//必须项
+            //...
+        })
+    }
+	//派发任务不需要进行任何改变，还是按照以前的用法进行派发，此时派发会依次遍历事件池中的所有事件（不管是哪个模块），匹配上后才执行
+}
+```
+
+### 5、派发行为标识宏管理
+
+不管哪个模块，哪个组件，我们派发的标识必须是唯一的
+
+基于宏管理，让所有派发的行为标识，具备唯一性
+
+```js
+在store下，创建action-types.js
+|-store
+	|-action
+		|-index.js
+	|-reducers
+		|-index/js
+		|-partReducer.js
+		|-...
+```
+
+```js
+//统一管理需要派发的行为标识
+// .src/store/action-types
+	//为了保证不冲突，我们一般都是这样命名的，模块名——派发的行为标识（大写）
+	//变量和储存的值是一致的
+	//所有需要派发的行为标识，都在这里定义
+
+export const VOTE_SUP = 'VOTE_SUP'
+export const VOTE_OPP = 'VOTE_OPP'
+//...
+```
+
+```jsx
+// ./src/reducers/voteReducer
+import * as TYPES from '../action-types'
+
+const initialState = {
+    val:'变量1'
+    ...
+}
+
+const voteReducer = function voteReducer(state= initialState, action){
+    state=deepClone(state)  //这里的deepclone为深克隆函数，需要自己写，这里仅引用名称，表示这里已经进行深克隆处理了
+    switch(state.type){
+        case TYPES.VOTE_SUP://这里统一对名称进行了管理，在store目录下的action-types
+            //操作val
+            break;
+        case TYPES.VOTE_OPP:
+            //操作val
+            break;
+        ...
+        default;
+    }
+    
+    return state
+}
+
+export default voteReducer
+```
+
+```jsx
+// ./src/views/Button
+import react, {useContext, useState} from 'react'
+import ThemeContext from './src/ThemeContext'
+import * as TYPES from '../action-types'
+
+const Button = function Button(){
+    const { store } = useContext(ThemeContext)
+    const { item, ... } = store.getState()
+    const handleClick = () =>{
+        store.dispatch({
+            //...
+            type: TYPES.VOTE_SUP://这里统一对名称进行了管理，在store目录下的action-types
+            //...
+        })
+    }
+
+}
+```
+
+统一管理派发的行为标识，除了保证不冲突，还能避免程序员因为粗心大意，导致的错误！
+
+### 6、`actionCreator`的创建
+
+```js
+//新创建actions文件夹，新建index.js文件
+|-store
+	|-action
+		|-index.js
+	|-reducers
+		|-index/js
+		|-partReducer.js
+		|-...
+```
+
+```js
+// ./src/actions/index.js
+//把各个板块的action合并为一个action即可
+import voteAction from './voteAction'
+import personalAction from './personalAction'
+
+const action = {
+    vote: voteAction,
+    personal: personalAction
+}
+export default action
+```
+
+```js
+// ./src/actions/voteAction.js
+//Vote板块要派发的行为对象管理，里面有很多方法，每一个方法执行，都返回要派发的行为对象
+import * as TYPES from '../action-types'
+const voteAction = {
+    support(){
+        return{
+            type: TYPES.VOTE_SUP
+        }
+    },
+    oppose(){
+        return{
+            type:TYPES.VOTE_OPP
+        }
+    }
+}
+export default voteAction
+```
+
+```js
+// ./src/actions/personalAction.js
+import * as TYPES from '../action-types'
+const personalAction = {
+    support(){
+        return{
+            //...
+        }
+    },
+    oppose(){
+        return{
+            //...
+        }
+    }
+}
+export default personalAction
+```
+
+```jsx
+// ./src/views/Button
+import react, {useContext, useState} from 'react'
+import ThemeContext from './src/ThemeContext'
+import action from '../store/actions'
+
+const Button = function Button(){
+    const { store } = useContext(ThemeContext)
+    const { item, ... } = store.getState()
+    const handleClick = () =>{
+        store.dispatch({
+			action.vote.support()
+        })
+    }
+	//...
+
+}
+```
+
+> [!IMPORTANT]
+>
+> 此操作看似很麻烦，但有其实际意义，我们称之为 创建`actionCreator`，在我们接下来，处理`react-redux`的时候，非常方便
+
+### 7、`combineReducers`的源码
+
+```js
+// myCombineReducers.js
+
+const combineReducers = function combineReducers(reducers){
+    //reduces是一个对象，以键值对存储，模块名&每个模块的reducer
+    let reducerskeys = Reflect.ownKeys(reducers) //此操作就是将reducerskey下面的可枚举属性以列表的姓氏展示出来['vote','personal']
+    
+    //返回一个合并的reducer
+    	//每一次dispatch派发，都是把这个reducer执行
+    	//state就是redux容器中的公共状态
+    	//action就是派发时候传进来的行为对象
+    
+	return function reducer(state = {},action){
+        //把reducers中的每一个小的reducer执行
+        //把对应模块的状态/action行为对象传递进来，返回的值替换当前模块下的状态！！
+        let nextState = {}
+        reducerskeys.forEach(key => {
+            //key:'vote'/'personal'模块名
+            let reducer = reducers[key]  //每一个模块的reducer对象
+            nextState[key] = reducer(state[key],action)
+        })
+        return nextState
+    }
+}
+```
+
+### 8、`react-redux`的运用
+
+`react-redux`最大的特点就是让`redux`的操作在`react`项目中更简单一些，主要是在组件应用的时候更方便一些
+
+1、内部自己创建了上下文对象，并且我们可以把`store`放在上下文中，在组件中使用的对象的时候，无需我们自己再获取上下文中`store`了，它可以帮我们获取到
+
+2、在组件中，我们向获取公共状态信息进行绑定等，无需我们自己基于上下文对象获取`store`，也无需自己基于`getState`获取公共状态，直接基于`react-redux`提供的`connect`函数处理即可！而且，也不需要我们手动把组件更新的方法，放在事件池中了，`react-redux`内部帮我们处理了！！
+
+```js
+|-assets
+|-store
+|-src
+	|-views
+		|-Vote.jsx
+		|-Vote.less
+		|-VoteFooter.jsx
+		|-VoteMain.jsx
+	|-index.jsx
+	|-index.less
+```
+
+```jsx
+// ./src/index.jsx
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import Item from './views/Item'
+
+//导入redux需要的组件
+import store from './store/index'
+import { Provider } from 'react-redux'  //**新增行
+
+const root = ReactDOM.createRoot(document.getElementById('app'))
+root.render(
+    <Provider store={ store }>  {/*修改行*/}
+        	<Item />
+    </Provider>
+)
+```
+
+```jsx
+// ./src/views/Item
+import React, {useContext, useEffect, useState} from 'react'
+import Button from './src/views/Button'
+
+import { connect } from 'react-redux'//*新增行
+
+const Item = function Item(props){
+	let { item } = props
+    return(
+    	<div className="itemName">
+            { item }
+        </div>
+        <Button />
+    )
+}
+
+export default connect(state=>state.item)(Item) //*修改行
+//这里的state.item中的item是state中的state键名，由自己命名，
+//connetc(...)(Item)中的Item是该组件的组件名，注意区分
+
+//语法：connect(mapStateToProps,mapDispatchToProps)(这里放我们要渲染的组件)
+//mapStateToProps：可以获取到redux中的公共状态，把需要的信息当作属性，传递组件即可
+//connect(state=>{
+	//state是储存redux容器中，所有模块的公共状态信息
+	//返回对象中的信息，就是要作为属性，传递给组件的信息
+	//return{
+		//supNum:state.vote.supNum
+	//}
+//})(Vote)
+
+--------------------------------------------------------------------------------------
+//以下是类组件
+
+// ./src/views/Item
+import React from 'react'
+import Button from './src/views/Button'
+
+import { connect } from 'react-redux'//*新增行
+
+class Item extends React.Compontent{
+	render(){
+        let { item } = this.props
+        return(
+            <div className="itemName">
+                { item }
+            </div>
+            <Button />
+        )
+    }
+}
+
+export default connect(state=>state.item)(Item) //*修改行
+```
+
+```jsx
+// ./src/views/Button
+import React from 'react'
+import { connect } from 'react-redux'
+import action from '../store/actions'
+
+const Button = function Button(props){
+	let { support, oppose} = props
+    const handleClick = () =>{
+		support
+    }
+
+}
+
+export default connect(
+    				null,
+                    dispatch =>{
+    					return{
+        					support(){
+                                dispatch(action.vote.support())
+                            },
+        					oppose(){
+                                dispatch(action.vote.oppose())
+                            }
+    					}
+					}
+                      )(Button)
+//简单写法，以上为标准写法
+//export default connect(null,action.vote)(Button)
+//语法：connect(mapStateToProps,mapDispatchToProps)(这里放我们要渲染的组件)
+//mapDispatchToProps：把我们需要派发的任务，当作属性传递给组件
+//connect(
+//    null,
+//    dispatch=>{
+//        //dispatch:store.dispatch 派发任务的方法
+//        
+//        //返回对象中信息，会作为属性传递给组件
+//        return{
+//            ...
+//        }
+//    })(Button)
+```
+
+```js
+// ./src/actions/index.js
+//把各个板块的action合并为一个action即可
+import voteAction from './voteAction'
+import personalAction from './personalAction'
+
+const action = {
+    vote: voteAction,
+    personal: personalAction
+}
+export default action
+```
+
+### 9、`react-redux`的使用总结
+
+react工程化处理
+
+1、把reducer状态按照模块进行划分和管理，把所有模块的reducer合并为一个即可
+ ```js
+ |-store
+ 	|-actions
+ 		|-index.js
+ 		|-xxXAction.js
+ 		|-xxXAction.js
+ 		|-...
+ 	|-reducers
+ 		|-index.js
+ 		|-xxXReducer.js
+ 		|-xxXReducer.js
+ 		|-...
+ 	|-action-types.js
+ 	|-index.js
+ ```
+
+```js
+// ./reducers/index
+import { combineReducers } from 'redux'
+import xxxReducer from './xxxReducer'
+import xxxReducer from './xxxReducer'
+//...
+
+const reducer = combineReducers({
+    partA: xxxReducer,
+    partB: xxxReducer,
+    partC: ...
+})
+```
+
+```js
+// ./reducers/xxxReducer
+
+const initialState = {
+    val:'变量1'
+    ...
+}
+
+const xxxReducer = function xxxReducer(state= initialState, action){
+    state=deepClone(state)  //这里的deepclone为深克隆函数，需要自己写，这里仅引用名称，表示这里已经进行深克隆处理了
+    switch(state.type){
+        case "项目1":
+            //操作val
+            break;
+        case "项目2":
+            //操作val
+            break;
+        ...
+        default;
+    }
+    
+    return state
+}
+
+export default personalReducer
+```
+
+ 2、每一次任务派发都会把所有模块的reducer，依次去执行，派发时候传递的行为（对象标识）是统一的，所以我们要保证各个模块之间，派发行为标识它的唯一性！派发行为标识的宏管理
+
+```js
+// action-types.js
+export const XXX_XX = 'XXX_XX'
+export const XXX_XX = 'XXX_XX'
+//...
+```
+
+3、创建`actionCreator`对象，按照模块管理我们需要派发的行为对象
+
+```js
+// ./actions/index.js
+import xxxAction from './xxxAction'
+import xxxAction from './xxxAction'
+...
+
+const action = {
+    partA: xxxAction,
+    partB: xxxAction,
+    partC:...
+}
+export default action
+```
+
+```js
+// ./actions/xxxAction.js
+import * as TYPES from '../action-types'
+
+const xxxAction = {
+    xxx(){ //行为1
+        return{
+            type: TYPES.XXX_XX
+        }
+    },
+    xxx(){ //行为2
+        return{
+            type:TYPES.XXX_XX
+        }
+    }
+}
+export default xxxAction
+```
+
+4、最后合并到入口文件
+
+```js
+// index.js
+import { createStore } from 'redux'
+import reducer from './reducer/index'
+
+const store = createStore(reducer)
+export default store
+```
+
+
+
+> [!TIP]
+>
+> 如果我们使用的是`redux`：
+>
+> 1、我们需要创建上下文对象，基于其Provider把创建的store放在根组件的上下文信息中，后代组件需要基于上下文对象，获取上下文中的store
+>
+> 2、需要用到公共状态的组件
+>
+> > `store.getState()`获取公共状态
+> >
+> > `store.subscribe()`让组件更新函数放在事件池中
+>
+> 3、需要派发的组件
+>
+> > `store.dispatch(actionCreator)`
+
+
+
+> [!TIP]
+>
+> 如果我们使用的是`react-redux`：
+>
+> 1、提供的Provider组件，可以自己在内部创建上下文对象，把store放在跟组件上下文中
+>
+> 2、提供的connect函数，在函数内部，可以获取到上下文中的store，然后快速的把公共状态，以及需要派发的操作，基于属性传递给组件！
+>
+> > `connect(mapStateToProps, mapDispatchToProps)（需要渲染的组件）`
+
+
+
+> [!IMPORTANT]
+>
+> 核心源码
+>
+> `createStore`
+>
+> `combineReducers`
+>
+> `bindActionCreators`
+>
+> `redux`在设计上，存在一些不好的地方，
+>
+> > 我们基于`getState()`获得的数据，是直接和`redux`中的公共状态，共有相同的地址，这样导致，是可以直接修改公共状态信息的，优化操作，我们应该在返回的时候，对数据做深拷贝处理。
+> >
+> > 我们会把让组件更新的办法，放在事件池中，当公共状态改变，会通知事件池中的所有方法执行，此操作，放置方法的时候，没有办法设置状态的依赖，这样，后期不论哪个状态被修改，事件池中的所有方法都要执行（相关组件都要进行更新），优化方法：我们向事件池中加入方法的时候，把依赖的信息也设置了，在每一次执行`reducer`修改状态之前，把之前的状态储存一份`prev`，修改后的最新状态也获取到`next`，在后期通知事件中方法执行的时候，拿出来某个方法是否执行，就可以`prev`和`next`中是否改变。
+> >
+> > 所有`reducer`的合并，其实不是代码的合并，而是创建一个总的`reducer`出来，每一次派发都会让总的`reducer`执行，而在这里，会把每个模块的`reducer`都完完整整执行一遍，（即便中间已经发现匹配的逻辑了，也会继续把其他模块中`reducer`执行）,优化方法：在某个模块的`reducer`中，如果派发的行为标识有匹配了，因为行为标识是统一管理的，所以遇到匹配的，说明后面不可能再匹配的，则停止执行后面的`reducer`
+
+### 10、`react-redux`的源码解读
+
 
 
 
