@@ -4961,9 +4961,67 @@ export default Menu
   > >
   > > `styled-components`（更简单）
 
+### 12、`useReducer`函数
+
+```jsx
+import React, {useReducer, useState} from 'react'
+
+const Demo = function Demo(){
+    return(
+    	<div className='box'>
+            <span>0</span>
+            <button onClick={() => {
+                    setNum(num+1)
+                }}>增加</button>
+            <button onClick={() => {
+                    setNum(num-1)
+                }}>减少</button>
+        </div>
+    )
+}
+export default Demo
 
 
-## 四、React生态
+//==================使用useReducer=========================
+const initalState = {
+    num:0
+}
+
+const reducer = function reducer(state,action){
+    state={ ...state }
+    switch(action.type){
+        case 'plus':
+            state.num++
+            break;
+        case 'minus':
+            state.num--
+            break;
+        default:
+    }
+    
+    return state
+}
+
+const Demo = function Demo(){
+    let [state, dipatch] = useReducer(reducer, initialState)
+    return(
+    	<div className='box'>
+            <span>0</span>
+            <button onClick={() => {
+                    dispatch({type: 'plus'})
+                }}>增加</button>
+            <button onClick={() => {
+                    dispatch({type: 'minus'})
+                }}>减少</button>
+        </div>
+    )
+}
+export default Demo
+```
+
+
+
+## 四、React生态-`Redux`
 
 ### 1、`Redux`基础
 
@@ -6145,10 +6203,3710 @@ export default store
 
 ### 10、`react-redux`的源码解读
 
+```jsx
+// ./myReactRedux.js
+import React, { createContext, useContexte, useEffect, useState, useMemo } from 'react';
+import { bindActionCreator } from 'redux'
+const ThemeContext = createContext();
+
+//Provider:把传递进来的store放在跟组件的上下文
+export function Provider(props) {
+    let { store, children } = props
+    
+    return(
+    	<ThemeContext.Provider value={{store}}>
+            {{ children }}
+        </ThemeContext.Provider>
+    )
+}
+
+//connect:获取上下文中的store，然后把公共状态，要派发的方法等，都基于属性传递给需要渲染的组件，把让组件更新的方法放在redux事件中
+export function connect(mapStateToProps, mapDispatchToProps){
+    //处理默认值
+    if(!mapStateToProps){
+        //不写则什么都不给组件传递
+        mapStateToProps=()=>{}
+    }
+    if(!mapDispatchToProps){
+        //不写则把dispatch方法传递给组件
+        mapDispatchToProps= dispatch =>{
+            return{
+                dispatch
+            }
+        }
+    }
+    return function currying(Component){
+        // Component:最终要渲染的组件，Vote
+        // HOC:我们最后基于export default导出的组件
+        return function HOC(props){
+            //我们需要获取上下文中store
+            let { store } = useContext(ThemeContext),
+                { getState, dispatch, subscribe } = store
+            
+            //向事件池中加入让组件更新的办法
+            let [,forceUpdate] = useState(0)
+            useEffect(()=>{
+                let unsubscribe = subscribe(()=>{
+                    forceUpdate(+new Date())
+                })
+                return()=>{
+                    //组件释放的时候执行
+                    unsubscribe()
+                }
+            },[])
+            
+            //把mapStateToProps, mapDispatchToProps执行的返回值，作为属性传递给组件
+            
+            let state = getState()
+            let nextState = useMemo(()=>{
+                return mapStateToProps(state)
+            },[state])
+            
+            let dispatchProps = {}
+            if(typeof mapStateToProps === 'function' ){
+                //是函数直接执行即可
+                dispatchProps = mapDispatchToProps(dispatch)
+            } else {
+                //是actionCreator对象，需要经过bindActionCreator进行处理
+                dispatchProps = bindActionCreator(mapDispatchToProps, dispatch)
+            }
+            return(
+            	<Component {...props} {...nextState} {...dispatchProps}/>
+            )
+        }
+        
+    }
+}
+```
+
+### 11、`redux`中间件及处理机制
+
+- `redux`中间件
+
+  > `redux-logger`每一次派发，再控制台输出派发日志，方便对`redux`的操作进行调试，输出的内容：派发之前的状态，派发的行为，派发后的状态。
+  >
+  > `redux-thunk/redux-promise` 实现异步派发，每一次派发的时候，需要传递给reducer的action对象中的内容，是需要异步获取的
+
+  ```js
+  // ./src/store/index.js
+  
+  import { createStore, applyMiddleware } from 'redux'
+  import reducer from './reducers'
+  
+  import reduxLogger from 'redux-logger'
+  
+  const store = createStore(reducer, applyMiddleware(reduxLogger)) //使用中间件的方法
+  export default store
+  ```
+
+  ```
+  //redux-logger输出的结果如下
+  action VOTE_SUP @15:43:32.574
+  	prev state >{vote: {...}, personal: {...}}
+  					>personal: {num: 100,info: null}
+  					>vote: {supNum: 10, oppNum: 5, num: 0}
+  					>[[Prototype]]: Object
+  	action	   >{type: 'VOTE_SUP'}
+  	next state >{vote: {...}, personal: {...}}
+  					>personal: {num: 100,info: null}
+  					>vote: {supNum: 11, oppNum: 5, num: 0}
+  					>[[Prototype]]: Object
+  ```
+
+真实项目中，往往我们是真的需要异步操作的，例如，在派发的时候，我们需要先向服务器发送请求，把数据拿到后，在进行派发，此时我们需要依托一些中间件来进行处理官方推荐的`redux-thunk`
+
+```js
+// ./src/store/index.js
+
+import { createStore, applyMiddleware } from 'redux'
+import reducer from './reducers'
+
+import reduxLogger from 'redux-logger'
+import reduxThunk from 'redux-thunk'
+import reduxPromise from 'redux-promise'
+
+const store = createStore(reducer, applyMiddleware(reduxLogger, reduxThunk)) //使用中间件的方法
+export default store
+```
+
+```jsx
+// ./src/store/action/voteActions.js
+
+import * as TYPES from '../action-types'
+
+const delay = ( interval=1000 ) =>{
+    return new Promise(resolve => {
+        setTimeout(()=>{
+            resolve()
+        },interval)
+    })
+}
+
+const voteAction = {
+    //基于redux-thunk
+    support(){
+        return async (dispatch) => {
+            await delay()
+            dispatch({
+                type: TYPES.VOTE_SUP
+            })
+        }
+    },
+    //基于redux-promise
+    async oppose(){
+        await delay(2000)
+        return{
+            type:TYPES.VOTE_OPP
+        }
+    }
+}
+```
+
+> [!NOTE]
+>
+> 1、第一次点击按钮，用到的`dispatch`是重写的`dispatch`，传递给`diapatch`的是一个函数（没有`type`），此时既不会报错，也不会通知`reducer`执行，仅仅是返回的这个函数执行了
+>
+> 2、把返回的函数执行，把派发的方法`dispatch`传递给函数
+
+`redux-promise`和`redux-thunk`中间件，都是处理异步派发的，他们相同的地方
+
+  1、都是派发两次，第一次派发的是重写的`dispatch`，这个方法不会去校验对象是否有`type`属性，也不会在乎传递的对象是否为标准普通对象，此次派发，仅仅是为第二次派发做准备
+
+> `redux-thunk`：把返回的函数执行，把真正的`dispatch`传递给函数
+>
+> `redux-promise`：监听返回的`promise`实例，再实例成功后，再基于真正的`dispatch`，把成功的结果，在进行派发
+
+### 12、案例`redux`重构`TASK_OA`
+
+`redux`在真是项目中的运用：
+
+1、实现组件之间的信息共享或者通信
+
+2、对数据进行缓存/存储
+
+```jsx
+//目录
+|-src
+	|-api
+	|-assets
+	|-views
+		|-index.jsx
+		|-Task.jsx
+	|-store
+		|-reducers
+			|-index.js		//合并reducers
+			|-taskReducers.js	//task板块的reducer
+		|-actions
+			|-index.js		//合并actionCreator
+			|-taskAction.js		//task板块的actionCreator
+		|-index.js       //创建store，使用中间件
+		|-action_types.js		//统一管理派发行为标识
+	|-index.js  //入口文件
+```
+
+```jsx
+// ./src/store/action_types.js
+
+export const TASK_LIST = "TASK_LIST";
+export const TASK_REMOVE = "TASK_REMOVE";
+export const TASK_UPDATE = "TASK_UPDATE";
+```
+
+```jsx
+// ./src/store/reducers/taskReducers.js
+import * as TYPES from '../action-types'
+import deepClone from 'deepClone为深拷贝工具，此处引用表示引用深拷贝工具'
+
+const initalState = {
+    taskList: null
+}
+
+export default function taskReducer(state = initalState, action){
+    state = deepClone(state)
+    let { taskList } = state
+    
+    switch(action.type){
+        case TYPES.TASK_LIST:
+            state.taskList = action.list;
+            break;
+        case TYPES.TASK_UPDATE:
+            if(Array.isArray(state.taskList)){
+                state.taskList = taskList,map(item => {
+                    if(+item.id === +action.id){
+                        item.state = 2
+                        item.complete = new Date().toLocaleString('zh-CN', { hour12: false })
+                    }
+                    return item
+                })
+            }
+            break;
+        case TYPES.TASK_DELETE:
+            if(Array.isArray(state.taskList)){
+                state.taskList = taskList.filter(item => {
+					return +item.id !== +action.id
+                })
+            }
+            break;
+         defaults;
+    }
+    return state
+}
+
+//获取全部任务 dispatch({type:'TASK_LIST', list:[...]})
+//删除任务 dispatch({type:'TASK_REMOVE', id:xxx})
+//完成任务 dispatch({type:'TASK_UPDATE', id:xxx})
+```
+
+```js
+// ./src/store/reducers/index.js
+
+import { combineReducers } from 'redux'
+import taskReducer from './taskReducer'
+
+const reducer = combineReducers({
+    task: taskReducer
+})
+export default reducer
+```
+
+```js
+// ./src/store/action/taskAction.js
+
+import * as TYPES from '../action-types'
+import { getTaskList } from '@/api'
+
+const taskAction = {
+    //异步派发，从服务器获取全局任务，同步到redux容器中
+    async queryAllList(){
+        let list = []
+        try{
+            let res = await getTaskList(0)
+            if(+result.code === 0){
+                list = result.list
+            }
+        }catch(_){}
+        return{
+            type: TYPE.TASK_LIST,
+            list
+        }
+    },
+    //同步派发，删除任务执行
+    deleteTaskById(id){
+        return{
+            type: TYPE.TASK_REMOVE,
+            id
+        }
+    },
+    //同步派发，修改任务执行
+    updateTaskById(id){
+        return{
+            type: TYPE.TASK_UPDATE,
+            id
+        }
+    },
+}
+export default taskAction
+```
+
+```js
+// ./src/store/action/index.js
+
+import taskAction from "./taskAction"
+
+const action = {
+    task:taskAction
+}
+export default action
+```
+
+```js
+// ./src/store/index.js
+
+import { createStore, applyMiddleware } from 'redux'
+import reducer from './reducers';
+import reduxLogger from 'redux-logger'
+import reduxPromise from 'redux-promise'
+
+const store = createStore(
+	reducer,
+    applyMiddleware(reduxLogger, reduxPromise)
+)
+
+export default store
+```
 
 
 
-## 五、精品文章
+```jsx
+// ./src/index.jsx
+
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import Task from './views/Task'
+
+import store from './store'
+import { Provider } from 'react-redux'
+
+const root = ReactDOM.createRoot(document.getElementById('root'))
+root.render(
+	<Provider store={ store }>
+    	<Task />
+    </Provider>
+)
+```
+
+```jsx
+// ./src/views/Task.jsx
+import React, { useState, useEffect } from 'react'
+import './Task.less'
+import { Button, Form, Input, Modal, Table, Tag, Popconfirm, DatePicker, message } from 'antd'//你想用哪个组件就导入哪个
+import { addTask, removeTask, completeTask} from '@api/index'
+
+import { connect } from 'react-redux'
+import action from '@/store/actions'
+
+//对日期处理方法
+const zero = function zero(text) {
+    text = String(text)
+    return text.length<2? '0'+text : text;
+}
+const formatTime = function formatTime(time){
+    let arr = time.match(/\d+/g)
+    let [,month,day,hours = '00',minutes = '00'] = arr
+    return `${zero(month)}-${zero(day)} ${zero(hours)}:${zero(minutes)}`
+}
+
+const Task = function Task(props){
+    //获取基于属性传递进来的公共状态 & actionCreator
+    let { taskList, queryAllList, deleteTaskById, updateTaskById } = props
+    columns = [{
+        title:'编号',
+        dataIndex:'id',
+        align: 'center',
+        width: '8%',
+    },{
+        title:'任务描述', 
+        dataIndex:'task',
+        ellipsis: true,
+        width: '50%',
+    },{
+        title:'状态',
+        dataIndex:'state',
+        align: 'center',
+        width: '10%',
+        render:text => {
+        	return +text===1?'未完成' : '已完成'	
+        }
+    },{
+        title:'完成时间',
+        dataIndex:'time',
+        align: 'center',
+        width: '15%',
+        render:(_, record) => {
+            let {state, time, complete} = record
+            if(+state === 2 ) time = complete
+            return formatTime(time)
+        }   
+    },{
+        title:'操作',
+        render:(_,record) => {
+            let { id, state } = record
+            return(
+            	<>
+                	<Popconfirm title="您确定要删除此任务么？" 
+                        onConfirm={this.handleRemove.bind(this,id)}>
+                    	<Button type="link">删除</Button>
+                	</Popconfirm>
+                	{+state !==2? <Popconfirm title="您确定把此任务设置成完成吗？" 
+                                    	onConfirm={this.handleUpdate.bind(this,id)}>
+                    	<Button type="link">完成</Button>
+                	</Popconfirm>:null}
+            	</>
+            )
+        }
+    }]
+    //初始组件的状态
+    let [selectedIndex, setSelectedIndex] =useState(0),
+        [tableData, setTableData]=useState([]),
+        [tableLoading, setTableLoading] = useState(false),
+        [modalVisible, setModalVisible] = useState(false),
+        [confirmLoading, setConfirmLoading] = useState(false),
+        formIns = useRef(null)
+    
+    //第一次渲染完毕，判断redux中是否有全部任务，如果没有，则进行异步的派发
+    useEffect(()=>{
+        (async () => {
+       		if(!taskList){
+                setTableLoading(true)
+                await queryAllList()
+                setTableLoading(false)
+            }
+       }) 
+    },[])
+	//依赖于redux中的全部任务…&选中的状态信息，从全部任务中，筛选出表格需要的数据
+	useEffect(()=>{
+        if(!taskList) {
+            setTableData([])
+            return
+        }
+        if (selectedIndex !==0){
+            taskList = taskList.filter(item => {
+                return item
+            })
+        }
+        setTableData(taskList)
+    },[taskList, selectedIndex])
+        
+    const closeModal = () => {
+         setModalVisible(false);
+        setConfirmLoading(false);
+        formIns.resetFields();
+    }
+    
+    const submit = async() => {
+        try{
+            await.formIns.validateFields()
+            let {task,time} = formIns.getFieldsValue()
+            time = time.format('YYYY-MM-DD HH:mm:ss')
+            //表演校验通过，向服务器发送请求
+            setConfirmLoading(true)
+            let {code} =await addTask(task,time)
+            if (+code === 0){
+                closeModal()
+                queryAllList()//派发任务，重新获取全部任务信息，同步到redux中
+                message.success('恭喜您，操作成功了')
+            }else{
+                message.error('很遗憾，操作失败了')
+            }
+        }catch(_){ }
+    }
+    
+    const RemoveHandle = (id) => {
+        try{
+            let { code } = await removeTask(id)
+            if(+code === 0){
+                queryAllList()
+                message.success('恭喜您，操作成功了')
+            }else{
+                
+            }
+        }catch(_){
+            message.error('很遗憾，操作失败了')
+        }
+    }
+    const handleUpdate = (id) => {
+        try{
+            let { code } = await completeTask(id)
+            if(+code=== 0){
+                queryAllList()
+                message.success('恭喜您，操作成功了')
+            }else{
+                
+            }
+        }catch(_){
+            message.error('很遗憾，操作失败了')
+        }
+    }
+    render(){
+        console.log('RENDER')
+        let { tableData, tableLoading, modalVisible, confirmLoading, selectedIndex } = this.state;
+        <div className="task-box">
+            <div className="header">
+                <h2 className='title'>TASK OA 系统任务管理系统</h2>
+                <Button type="primary" onClick={()=>{
+                        setModalVisible(true)
+                        })
+                    }}>新增任务</Button>
+            </div>
+            <div className='tag-box'>
+                {['全部','未完成','已完成'].map((item, index) => {
+                    return (
+                        <Tag key={ index } 
+                             color={ selectedIndex === selectedIndex? '#1677ff' : '' } 
+                             onClick={()=>{
+                                if(index === selectedIndex) return  //这一行可加可不加，react会自己判断，状态不会更新，视图也不会渲染。
+                                setSelectedIndex(index)
+                                query()
+                            }}
+                               >{ item }</Tag>
+                           )
+                })}             
+            </div>
+            
+            <Table dataSource={ tableData } 
+                columns={ columns } 
+                loading={ tableLoading } 
+                pagination={ false } 
+                rowKey='id' />
+            
+            <Modal title="新增任务窗口" 
+                open={ modalVisible } 
+                confirmLoading={ confirmLoading } 
+                keyboard= { false } 
+                maskClosable={ false } 
+                okText='确认提交' 
+                onCancel={ closeModal } 
+                onOk={ submit }>
+                <Form layout="vertical" 
+                    initialValues={{task: '',time:''}} 
+                    validateTigger="onBlur" 
+                    ref = { formIns }>
+                	<Form.Item ref={x => this.formInx = x} label="任务描述" name="task" rules={[
+                            {require: true,message:'任务描述必填'},
+                            {min:6,message:'输入的内容至少6位及以上'}
+                        ]}>
+                        <Input.TextArea rows={ 4 }></Input.TextArea>
+                    </Form.Item>
+                    <Form.Item label="预期完成时间" name="time" rule={[
+                            {require: true,message:'预期完成事件是必填项'}
+                        ]}>
+                        <DatePicker showTime />
+                    </Form.Item>
+                </Form>
+            </Modal>
+        </div>
+    }
+}
+
+export default connect(
+	state => state.task,
+    action.task
+)(Task)
+```
+
+
+
+### 13、`Fetch`复习
+
+向服务器发送数据的请求方案
+
+> 第一类：`XMLHttpRequest`
+>
+> > `ajax`：自己编写请求的逻辑和步骤
+> >
+> > `axios`：第三方库，对`XMLHttpRequest`进行封装（基于`promise`进行封装）
+>
+> 第二类：`fetch`
+>
+> > `ES6`内置的`API`，本身就是基于`promise`，用全新的方案实现客户端和服务器端的数据请求
+> >
+> > 不兼容`IE`
+> >
+> > 机制的完善度上，还是不如`XMLHttpRequest`（例如无法设置超时时间，没有内置的请求中断的处理...）
+>
+> 第三类：其他方案
+>
+> > `jsonp`方案
+> >
+> > `postMessage`方案
+> >
+> > 利用`img`的`src`发送请求，实现数据埋点和上报
+
+```js
+let promise实例(p) = fetch(请求地址，配置项)
+当请求成功，p的状态是成功fulfilled，值是请求回来的内容；如果请求失败，p的状态是失败rejected，值是失败的原因
+
+fetch和axios有一个不一样的地方，再fetch中，只要服务器有反馈信息（不论HTTP状态码多少），都说明网络请求成功，最后的实例p都是fulfilled，只有服务器没有任何反馈（例如：请求中断，请求超时，断网等），实例p才是rejected失败的。但是在axios中，只有返回的状态码是以2开始的，才会让实例是成功态
+
+配置项：
+	method 请求的方式，默认是GET（GET、HEAD、DELETE、OPTIONS、POST、PUT、PATCH）
+	mode 请求模式(no-cors, *cors, same-origin)
+	cache 缓存模式(*default、no-cache、reload、force-cache、only-if-cached)
+	credentials 资源凭证|liru1cookie(include、*same-origin、omit)
+//fetch默认情况下，在跨域请求中，是不允许携带资源凭证的,只有同源才可以，include同源和跨域下都可以，same-origin只有同源才可以，omit都不可以
+	headers:{}//Headers实例，自定义请求信息
+//Headers类：头处理类（请求头或者响应头）
+//Headers.prototype.append新增响应头
+//Headers.prototype.delete删除响应头
+//Headers.prototype.forEach迭代获取所有头信息
+//Headers.prototype.get获取某一项信息
+//Headers.prototype.has验证是否包含某一项
+//let head = new Headers
+//head.append('Content-Type', 'application/json')
+//head.append('name', 'zhufeng')
+//head.forEach((value,key)=>console.log(value,key))
+//head.get('name')//zhufeng
+//head.has('name')//true
+	body:设置请求主体信息，只适用于post系列请求，在get系列请求中设置body会报错，body设置的格式有要求，并且需要指定 Content-			Type请求头信，
+//例如JSON字符串(application/json)，URLENCODER(applictaion/x-www-form-urlencoded)字符串，普通字符串(text/plain)，FormData对象(multipart/form-data主要用于文件上传或者表单提交的操作中)，let fm = new 		            FormData();fm.append('file',文件)，二进制或者Buffer等格式
+
+相对于axios，fetch没有对get系列请求，问好传参的信息做特殊处理，（axios中基于params设置问号传参信息），需要自己手动拼接到url末尾才可以
+
+response类
+	body:响应体信息，他是一个ReadableStream
+    headers：响应头信息，他是Headers实例
+    status/statusText 返回的http状态码
+Response.prototype.arrayBuffer
+Response.prototype.blob
+Response.prototype.formData
+Response.prototype.json
+Response.prototype.text
+...
+这些原型方法可以把可读流信息变成我们需要的格式!
+返回值是一个promise实例，这样可以避免，服务器返回的信息在转换中出现问题（例如：服务器返回的是一个流信息，我们转换为json对象肯定是不对的，此时可以让其返回失败的实例即可）
+```
+
+
+
+```js
+// ./src/fetchDemo.js
+
+//let promise实例(p) = fetch(请求地址，配置项)
+//当请求成功，p的状态是成功fulfilled，值是请求回来的内容；如果请求失败，p的状态是失败rejected，值是失败的原因
+
+let head = new Headers
+head.append('Content-Type', 'application/json')
+
+let proMise = fetch('/api/getTaskLisk',{
+    headers:head
+})
+proMise.then(response => {
+    //进入then的时候，不一定是请求成功，可能状态码是各种情况
+    console.log(response)//返回的是Response类的实例
+    let { headers, status, statusText } = response
+    if(...){
+       ...
+       return response.json()
+    }else{
+        
+    }
+    console.log('服务器时间', headers.get('Date'))
+    console.log(response.json())//response是可读流，通过json()方法，可以再返回一个promise对象，结果就在promise对象里面
+    return Promise.reject({
+    	code:-100,
+        status,
+        statusText
+    })
+}).catch(reason => {
+    console.log(reason)
+    //1、服务器没有返回任何信息
+    //2、状态码不对
+    //3、数据转换失败
+})
+
+
+fetch('/api/',{headers:''}).then(response => response.json()).then(value=>console.log(value)).catch(reason=>console.log(reason))
+```
+
+```js
+import qs from 'qs'
+
+
+fetch('api/addTask',{
+	method:"POST",
+    //设置请求头
+    headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+    },
+    //自己手动把请求主题变为服务器需要的
+	body:qs.stringify({
+        task:'我学会了Fetch',
+        time:'2022-12-15'
+    })
+		
+	}
+}).then(response=>response.json()).then(value => console.log(value))
+```
+
+fetch的请求中断
+
+```js
+let ctrol = new AboutController()
+
+fetch('/api/getTaskList', {
+    //请求中断的信号
+    signal: ctrol.signal
+}).then(response => {
+    		let { status, statusText } = response
+            if (/^(2|3)\d{2}$/.test(status)) return response.json()
+    		return Promise.reject({
+                code: -100,
+                status,
+                statusText
+            })
+		}).then(value => {
+    		console.log('最终处理后的结果', value)
+		}).catch(reason => {
+    		console.log('失败', reason)
+		})
+
+ctrol.about()
+//结果是返回一个对象{code:20,message:"the user abouted a request", name: "aboutError"}
+```
+
+
+
+### 14、案例-封装企业级`Fetch`
+
+合并对象中的每一项
+
+`Object.assign(obj1,obj2) `，`obj2`替换`obj1`，修改了`obj1`，返回的也是`obj1`
+
+```js
+import isPlainObject from '检查是否是纯对象的模块，需要自己编写，或者是别人的组件库'
+import qs from 'qs'
+const http = function http(config) {
+    //initial config & validate
+    if(!isPlainObject(config)) config = {}
+    config = Object.assign({
+        url:'',
+        method:'GET',
+        credentials:'include',
+        headers:null,
+        body:null,
+        params:null,
+        response:'json',
+        signal:null
+    },config)
+    
+    if(!config.url) throw new TypeError('url must be required')
+    if(!isPlainObject(config.headers)) config.headers = {}
+    if(config.params!==null && !isPlainObject(config.params)) config.params = null
+    
+    //处理各种细节
+    let {url, method, credentials, headers, body, params, responseType, signal} = config
+    
+    //处理问号传参
+    if (params) {
+        url += `${url.includes('?')? '$':'?'}${qs.stringify(params)}`
+    }
+    //处理请求主体信息：按照我们后台要求，如果传递的是一个普通对象，我们要把其设置为urlencoded格式
+    if(isPlainObject(body)){
+        body = qs.stringify(body)
+        headers['Content-Type'] = 'application/x-www-form-urlencoded'
+    }
+    //类似于axios中请求拦截器，每一个请求，递给服务器相同的内容可以在这里处理
+    let token = localStorage.getItem('tk')
+    if(token){
+        headers['authorization'] = token
+    }
+    
+    //发送请求
+    method = method.toUpperCase()
+    config = {
+        method,
+        credentials,
+        headers,
+        cache:'no-cache',
+        signal
+    }
+    if(/^(POST|PUT|PATCH)$/i.test(method) && body)config.body = body
+    return fetch(url,config).then(response => {
+        let { status, statusText } = response
+        if (/^(2|3)\d{2}$/.test(status)){
+            
+            let result;
+            switch(responseType.toLowerCase()){
+                case 'text':
+                    result = response.text()
+                    break;
+                case 'arraybuffer':
+                    result = response.arrayBuffer()
+                    break;
+                case 'blob':
+                    result = response.blob()
+                    break;
+                default:
+                    result = response.json()
+            }
+            return result
+        }
+        return Promise.reject({
+            code: -100.
+            status,
+            statusText
+        })
+    }).catch(reason=>{
+        
+        if(reason && typeof reason === 'object'){
+            let { code,status } = reason
+            if(code === -100){
+                switch(+status){
+                    case 400:
+                        alert('请求参数出现问题')
+                    break;
+                }
+            }else if(code === 20){
+                alert('请求被中断了')
+            }else{
+                alert('当前网络繁忙')
+            }
+        }
+        return Promise.reject(reason)
+    })
+}
+
+//快捷方法
+['GET', 'HEAD', 'DELETE', 'OPTIONS'].forEach(item => {
+    http[item.toLowerCase()] = function (url, config) {
+        if(!isPlainObject(config)) config = {}
+        config['url'] = url
+        config['method'] = item
+        return http(config)
+    }
+})
+
+['POST', 'PUT', 'PATCH'].forEach(item => {
+    http[item.toLowerCase()] = function (url, body, config) {
+        if(!isPlainObject(config)) config = {}
+        config['url'] = url
+        config['method'] = item
+        config['body'] = body
+        return http(config)
+    }
+})
+export default http
+```
+
+### 15、`redux-toolkit`
+
+最大特点：基于切片机制， 把`reducer`和`actionCreator`混合在一起了
+
+```
+|-src
+	|-store
+		|-features
+			|-taskSlice.js
+		|-index.js
+	|-views
+		|-index.jsx
+```
+
+```js
+// ./src/store/index.js
+import { configureStore } from '@reduxjs/toolkit'
+import reduxLogger from 'redux-logger'
+import reduxThunk from 'redux-thunk'
+import taskSliceReducer from './features/taskSlice'
+
+const store = configureStore({
+    // 指定reducer
+    reducer: {
+        // 按模块管理各个切片
+        task:taskSliceReducer
+    },
+    // 使用中间件，如果我们不指定任何中间件，默认集成了reduxThunk，但是一旦设置中间件，会整体替换默认值，需要手动指定thunk中间件
+    middleware: [ reduxLogger, reduxThunk ]
+})
+export default store
+```
+
+```js
+// ./src/store/features/taskSlice.js
+//task模块的切片，包含reducer & action-Creator
+
+import { createSlice } from '@reduxjs/toolkit'
+import { getTaskList } from '../../api'
+
+const taskSlice = createSlice({
+    //设置切片的名字
+    name:'task',
+    //设置此切片对应reducer中的初始状态
+    initialState:{
+        taskList: null
+    },
+    //编写不同业务逻辑下，对公共状态的更改
+    reducers:{
+        getAllTaskList(state，action){
+            //state:redux中的公共状态信息（基于immer库管理，无需自己再克隆了）
+            //action:派发的行为对象，我们无需考虑行为标识的问题了，传递的其他信息，都是以action.payload传递进来的值！
+            state.tasklist = action.payload
+        },
+        removeTask(state, { payload }){
+            let taskList = state.taskList
+            if (!Array.isArray(tasklist)) return;
+            state.taskList = taskList.filter(item => {
+                //payload:接收传递进来的，要删除那一项的ID
+                return +item.id! ==  +payload
+            })
+        },
+        updateTask(state, { payload }){
+            let taskList = state.taskList
+            if (!Array.isArray(tasklist)) return;
+            state.taskList = taskList.map(item => {
+                if(+item.id === +payload){
+                    item.state = 2
+                    item.complete = new Date().toLoaclString('zh-CN')
+                }
+            })
+        }
+    }
+})
+//从切片中获取actionCreator,此处结构的方法和上面的reducer中的方法，仅仅是函数名相同，方法执行，返回需要派发的行为对象，后期我们可以基于dispatch进行任务派发就可以了
+export let { getAllTaskList, removeTask, updateTask } = taskSlice.actions
+export const removeTaskAction = removeTask;
+epoort const updateTaskAction = updateTask;
+
+console.log(getAllTaskList([])) //{type: 'task/getAllTaskList', payload: Array(0)}
+
+//实现异步派发,基于redux-thunk
+export const getAllTaskListAsync = () => {
+    return async dispatch => {
+        let list = []
+        try{
+            let result =  await getTaskList(0)
+            if(+result.code ===0 ){
+                list = result.list
+            }
+        }catch(_){
+            dispatch(getAllTaskList(list))
+        }
+    }
+}
+//从切片中获取reducer
+export default taskSlice.reducer
+```
+
+```jsx
+// ./src/index.jsx
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import Item from './views/Item'
+
+//导入redux需要的组件
+import store from './store/index'
+import { Provider } from 'react-redux'  //**新增行
+
+const root = ReactDOM.createRoot(document.getElementById('app'))
+root.render(
+    <Provider store={ store }>  {/*修改行*/}
+        	<Item />
+    </Provider>
+)
+```
+
+```jsx
+// ./src/views/Task.jsx
+import React, { useState, useEffect } from 'react'
+import './Task.less'
+import { Button, Form, Input, Modal, Table, Tag, Popconfirm, DatePicker, message } from 'antd'//你想用哪个组件就导入哪个
+import { getTaskList, addTask, removeTask, completeTask} from '@api/index'
+import { useSelector, useDispatch } from 'react-redux'
+import { getAllTaskAsync, removeTaskAction, updateTaskAction } from '../store/features/taskSlice'
+//不再使用content函数了
+
+//对日期处理方法
+const zero = function zero(text) {
+    text = String(text)
+    return text.length<2? '0'+text : text;
+}
+const formatTime = function formatTime(time){
+    let arr = time.match(/\d+/g)
+    let [,month,day,hours = '00',minutes = '00'] = arr
+    return `${zero(month)}-${zero(day)} ${zero(hours)}:${zero(minutes)}`
+}
+
+const Task = function Task(props){
+    //获取公共状态和派发的方法
+    let { taskList } = useSelector{state => state.task}
+	let dispatch = useDispatch()
+    
+    columns = [{
+        title:'编号',
+        dataIndex:'id',
+        align: 'center',
+        width: '8%',
+    },{
+        title:'任务描述', 
+        dataIndex:'task',
+        ellipsis: true,
+        width: '50%',
+    },{
+        title:'状态',
+        dataIndex:'state',
+        align: 'center',
+        width: '10%',
+        render:text => {
+        	return +text===1?'未完成' : '已完成'	
+        }
+    },{
+        title:'完成时间',
+        dataIndex:'time',
+        align: 'center',
+        width: '15%',
+        render:(_, record) => {
+            let {state, time, complete} = record
+            if(+state === 2 ) time = complete
+            return formatTime(time)
+        }   
+    },{
+        title:'操作',
+        render:(_,record) => {
+            let { id, state } = record
+            return(
+            	<>
+                	<Popconfirm title="您确定要删除此任务么？" 
+                        onConfirm={this.handleRemove.bind(this,id)}>
+                    	<Button type="link">删除</Button>
+                	</Popconfirm>
+                	{+state !==2? <Popconfirm title="您确定把此任务设置成完成吗？" 
+                                    	onConfirm={this.handleUpdate.bind(this,id)}>
+                    	<Button type="link">完成</Button>
+                	</Popconfirm>:null}
+            	</>
+            )
+        }
+    }]
+    //初始组件的状态
+    let [selectedIndex, setSelectedIndex] =useState(0),
+        [tableData, setTableData]=useState([]),
+        [tableLoading, setTableLoading] = useState(false),
+        [modalVisible, setModalVisible] = useState(false),
+        [confirmLoading, setConfirmLoading] = useState(false),
+        formIns = useRef(null)
+    
+    //关于TABLE和数据的处理
+    //第一次渲染完毕，判断redux中是否有全部任务，如果没有，则进行异步的派发
+    useEffect(()=>{
+        (async () => {
+       		if(!taskList){
+                setTableLoading(true)
+                await dispatch(getAllTaskListAsync())
+                setTableLoading(false)
+            }
+       }) 
+    },[])
+	//依赖于redux中的全部任务…&选中的状态信息，从全部任务中，筛选出表格需要的数据
+	useEffect(()=>{
+        if(!taskList) {
+            setTableData([])
+            return
+        }
+        if (selectedIndex !==0){
+            taskList = taskList.filter(item => {
+                return item
+            })
+        }
+        setTableData(taskList)
+    },[taskList, selectedIndex])
+        
+    const closeModal = () => {
+         setModalVisible(false);
+        setConfirmLoading(false);
+        formIns.resetFields();
+    }
+    
+    const submit = async() => {
+        try{
+            await.formIns.validateFields()
+            let {task,time} = formIns.getFieldsValue()
+            time = time.format('YYYY-MM-DD HH:mm:ss')
+            //表演校验通过，向服务器发送请求
+            setConfirmLoading(true)
+            let {code} =await addTask(task,time)
+            if (+code === 0){
+                closeModal()
+                // 重新派发异步任务，获取全局任务信息同步到redux中
+                setTableLoading(true)
+                await dispatch(getAllTaskListAsync())
+                setTableLoading(false)
+                
+                message.success('恭喜您，操作成功了')
+            }else{
+                message.error('很遗憾，操作失败了')
+            }
+        }catch(_){ }
+    }
+    
+    const RemoveHandle = (id) => {
+        try{
+            let { code } = await removeTask(id)
+            if(+code === 0){
+                //实现派发
+                dispatch(removeTaskAction(id))
+                //{ type:'type/removeTask', payload: 100 }
+                message.success('恭喜您，操作成功了')
+            }else{
+                
+            }
+        }catch(_){
+            message.error('很遗憾，操作失败了')
+        }
+    }
+    const handleUpdate = (id) => {
+        try{
+            let { code } = await completeTask(id)
+            if(+code=== 0){
+                //实现派发
+                dispatch(updateTaskAction(id))
+                message.success('恭喜您，操作成功了')
+            }else{
+                
+            }
+        }catch(_){
+            message.error('很遗憾，操作失败了')
+        }
+    }
+    render(){
+        console.log('RENDER')
+        let { tableData, tableLoading, modalVisible, confirmLoading, selectedIndex } = this.state;
+        <div className="task-box">
+            <div className="header">
+                <h2 className='title'>TASK OA 系统任务管理系统</h2>
+                <Button type="primary" onClick={()=>{
+                        setModalVisible(true)
+                        })
+                    }}>新增任务</Button>
+            </div>
+            <div className='tag-box'>
+                {['全部','未完成','已完成'].map((item, index) => {
+                    return (
+                        <Tag key={ index } 
+                             color={ selectedIndex === selectedIndex? '#1677ff' : '' } 
+                             onClick={()=>{
+                                if(index === selectedIndex) return  //这一行可加可不加，react会自己判断，状态不会更新，视图也不会渲染。
+                                setSelectedIndex(index)
+                                query()
+                            }}
+                               >{ item }</Tag>
+                           )
+                })}             
+            </div>
+            
+            <Table dataSource={ tableData } 
+                columns={ columns } 
+                loading={ tableLoading } 
+                pagination={ false } 
+                rowKey='id' />
+            
+            <Modal title="新增任务窗口" 
+                open={ modalVisible } 
+                confirmLoading={ confirmLoading } 
+                keyboard= { false } 
+                maskClosable={ false } 
+                okText='确认提交' 
+                onCancel={ closeModal } 
+                onOk={ submit }>
+                <Form layout="vertical" 
+                    initialValues={{task: '',time:''}} 
+                    validateTigger="onBlur" 
+                    ref = { formIns }>
+                	<Form.Item ref={x => this.formInx = x} label="任务描述" name="task" rules={[
+                            {require: true,message:'任务描述必填'},
+                            {min:6,message:'输入的内容至少6位及以上'}
+                        ]}>
+                        <Input.TextArea rows={ 4 }></Input.TextArea>
+                    </Form.Item>
+                    <Form.Item label="预期完成时间" name="time" rule={[
+                            {require: true,message:'预期完成事件是必填项'}
+                        ]}>
+                        <DatePicker showTime />
+                    </Form.Item>
+                </Form>
+            </Modal>
+        </div>
+    }
+}
+
+export default connect(
+	state => state.task,
+    action.task
+)(Task)
+```
+
+## 五、React生态-`mobx`
+
+### 1、`Object.defineProperty`
+
+对对象本身的规则限制
+
+> 冻结、密封、扩展
+
+对象中的每一个成员，也有相关的规则限制
+
+```js
+// ./defineProperty.js
+//Object.defineProperty(obj, key, descriptors)
+//	|设置对象中某个成员的规则
+//		|如果成员已经存在，则修改其规则
+//		|如果成员不存在，则新增这个成员，并设置规则(默认所有规则都是false)
+
+
+//对象"成员"的规则限制：
+// Object.getOwnPropertyDescriptor(对象, 成员)：获取对象中某个成员的规则
+// Object.getOwnPropertyDescriptors(对象)：获取对象中所有成员的规则
+// 规则：
+// 	|configurable：是否可以删除
+//	|writable：是否可以更改
+//	|enumerable：是否可以枚举（可以被for/in或者object.keys列举出来的属性是可枚举的）
+// 	|value: 属性值
+
+// 数据劫持
+object.defineProperty(obj, 'x', {
+    get(){
+        //我们后期获取obj.x成员信息的时候，就会触发getter函数执行
+        //返回的内容则是成员值
+        return "@@"
+    },
+    set(val){
+        //设置成员值的时候，会触发这个setter函数，val就是我们设置的值
+    }
+})
+
+//先触发setter函数，拿到我们设置的值，再触发getter函数，返回修改后的成员值
+
+let obj = {
+    x: 100
+}
+Object.defineProperty(obj, 'x', {
+    //已经存在，修改成员
+    enumerable:false,//是否枚举，默认false不能
+    writable: false,//是否可写，默认false不能修改
+    configurable: false，//是否可配置，默认true可以配置（删除）
+})
+Object.defineProperty(obj, 'y', {
+    //不存在，新增成员
+    enumerable:false,
+    writable: true,
+    configurable: true,
+    value: 1000
+})
+
+console.log(Object.getOwnPropertyDescriptor(obj, 'x'))  //查看js对象中哪个对象的哪个属性规则（obj对象中的x属性）
+//{value:100, writable:true, enumerable:true, configurable: true}
+
+```
+
+### 2、装饰器/类的装饰器处理
+
+装饰器目前还没有被证实发版，还处于stage-2
+
+类的装饰器在类的声明之前被声明，可以用来监视，修改或替换类的定义。
+
+```js
+// decorator.js
+
+//想要vscode支持，需要以下设置
+//vscode设置项搜索decorator,JS/TS>Implicit Project Config: Experimental Decorators
+//vscode设置项搜索decorator,Merge-conflict>Decorators: Enabled
+
+//webpack支持编译，也需要安装包
+//插件1:@babel/plugin-proposal-class-properties //编译class插件
+//插件2:@babel/plugin-proposal-decorators //支持修饰器语法
+
+//然后在package.json中修改配置项
+//"babel":{
+//	[
+//		"@babel/plugin-proposal-decorators",
+//       {
+//          "legacy": true //让装饰器语法以遗留版为主
+//        }
+//	],
+//	[
+//		"@babel/plugin-proposal-class-properties",
+//       {
+//          "loose": true //false 是基于object.defineProperty设置属性和方法，true是直接设置，不使用代理
+//        }
+//	]
+//}
+//如果报错，需要安装roadhog@2.5.0-beta.1，来解决babel语法包和插件之间版本差异的问题
+
+const test = (target) => {
+    //target是Demo的情况下 就是给类的设置静态私有属性的方法
+    target.num = 100
+    target.getNum = function getNum(){}
+    target.prototype.say = function say(){}
+}
+
+class Demo {}
+test(Demo)
+//==============
+@test
+class Demo{}
+
+// 语法
+// @函数
+// class Xxx{}
+//创建类的时候，会把装饰函数执行，target就是当前装饰的类
+//我们可以在装饰器函数中，给类设置一些静态私有的属性方法，或者设置原型上的属性方法
+//---
+//同一个装饰器可以作用在多个类上（需要基于class创建类）
+//同一个类上，也可以使用多个装饰器
+
+
+//编译后的样子
+var _class;
+const test = target =>{
+    //...
+}
+let Demo = test(_class = class Demo{}) || _class
+
+//==============
+
+const sum = target => {
+    target.prototype.sum = function sum(){}
+}
+
+const staticNum = target => {
+    target.num = 10
+    target.setNum = function setNum(val) {
+        this.num = val
+    }
+}
+
+@sum
+@staticNum
+class Demo{}
+//以上是多个装饰器的类，处理顺序是从下到上，也就是先@staticNum，后@sum
+
+//编译后的样子
+var _class
+const sum = target =>{
+    //...
+}
+const staticNum = target =>{
+    //...
+}
+let Demo = sum(_class = staticNum(_class = class Demo{}) || _class) || _class;
+
+```
+
+### 3、装饰器/属性和方法的装饰器
+
+```js
+// decorator.js
+
+//在给实例设置私有属性的时候，触发装饰器函数执行，以此来给属性进行装饰
+const test = (target,name,descriptor) => {
+    console.log(target, name, descriptor)
+    //target:Demo.prototype
+    //name:'x'
+    //descriptor { configurable: true, enumerable: true, writable: true, initializer: f } 修饰的属性，则初始值是基于initializer函数设置的
+    //target:Demo.prototype
+    //name:'getX'
+    //descriptor { configurable: true, enumerable: false, writable: true, value: f } 修饰的函数，则初始值是基于value属性设置的
+}
+
+class Demo {
+    
+    @test
+    x = 100;
+    
+    @test
+    getX(){}
+}
+
+let d = new Demo
+console.log(d)
+
+
+//=============================
+
+
+const readonly = (_,name, descriptor) =>{
+    //把修饰name属性/方法设置为只读的规则
+    descriptor.writable = false
+}
+//创建记录执行时间日志的修饰器
+const loggerTime=(_,name,descriptor) =>{
+    //把之前写的getX函数赋值给func
+    let func = descriptor.value
+    
+    //然后把函数重写了,d.get()执行的重写的函数
+    descriptor.value = function proxy(...params){
+        console.time(name);
+        let res = func.call(this,...params)
+        console.timeEnd(name)
+        return res
+    }
+}
+
+class Demo {
+    @readonly
+    x = 100;
+    
+    @loggerTime
+    getX(){
+        return this.x
+    }
+}
+
+let d = new Demo
+d.x = 200 // 经过readonly修饰,只读属性
+console.log(d.getX())
+
+Demo.prototype.getX = function(){}  //经过readonly修饰,只读属性,不能修改
+
+//====================================
+
+const test = (target,name,descriptor)=>{
+    //返回值必须是一个规则的描述对象，也就是对name修饰属性/方法的规则描述
+    return descriptor
+}
+```
+
+### 4、`mobx`知识
+
+`mobx`是一个简单可扩展的状态管理库，相较于`redux`，它
+
+> 开发难度低
+>
+> 开发代码量少
+>
+> 渲染性能好
+
+`action>>>State>>>Computed Values >>> Reactions`
+
+```
+yarn add @babel/plugin-proposal-decorators @babel/plugin-proposal-class-properties
+```
+
+```
+//package.json
+
+"babel":{
+	"presets": [ "react-app" ],
+	"plugins": [
+        [
+            "@babel/plugin-proposal-decorators",
+           {
+              "legacy": true //让装饰器语法以遗留版为主
+            }
+        ],
+        [
+            "@babel/plugin-proposal-class-properties",
+           {
+              "loose": true //false 是基于object.defineProperty设置属性和方法，true是直接设置，不使用代理
+            }
+        ]
+	]
+}
+```
+
+```react
+// mobxDemo.jsx
+
+import React from 'react'
+import { observable, action } from 'mobx'
+import { observer } from 'mobx-react'
+
+//---------------------------------类组件-----------------------------
+//创建一个容器
+class Store {
+    //公共状态,使用observable修饰，使其可监听
+    @observable
+    num = 10
+    //修改公共状态的方法
+    @ation
+    change(){
+        this.num++
+    }
+}
+let store = new Store
+
+@observer
+class Demo extends React.Component{
+    render(){
+        return(
+            <div>
+                <span>0</span>
+            	</br>
+            	<button>按钮</button>
+            </div>
+        )
+    }
+}
+
+export default Demo
+
+//---------------------------------函数组件-----------------------------
+//函数组件无法使用装饰器的语法，但是我们可以把observer执行，把组件传递进去（这样和装饰器有相同的效果）
+const Demo = observer(function Demo(){
+    return(
+        <div>
+            <span>0</span>
+            </br>
+        	<button>按钮</button>
+        </div>
+    )
+})
+```
+
+这样一个简单的`mobx`应用就实现了
+
+以下为详细记录
+
+```js
+import { observable, autorun } from 'mobx'
+
+class store {
+    //observable就是把状态变为可监测的，只有这样，以后基于autorun/@observer等监测机制才会生效
+	@observable x = 10
+}
+let store = new Store
+
+autorun(()=>{
+    //首先会立即执行一次，自动建立起依赖监测（监测用到的状态）;当依赖的状态发生改变，callback会重新执行
+    console.log('autorun:', store.x)
+})
+setTimeout(()=>{
+    store.x = 1000
+},1000)
+```
+
+```js
+import { observable, autorun, observe, computed, reaction, action, configure, runInAction } from 'mobx'
+
+//经过observable处理后的数据，是基于ES6 Proxy做过数据劫持的，这样我们后期修改状态值，就可以在Setter函数中去做一些特殊处理，例如：把依赖其值的监听器触发执行...
+let obj = observable({
+    x: 10,
+    y: 20
+})
+console.log(obj) //不是普通对象了，而是一个Proxy的代理对象
+//>Proxy{ Symbol(mobx administration): ObservableObjectAdministration }
+// >[[Handler]]: Object
+// >[[Target]]: Object
+// >[[IsRevoked]]: false
+
+//=========================================================
+
+//以下是原理机制
+//ES6中的Proxy(这就是mobx>=5不支持ie的原因)
+//对当前的某个对象进行数据劫持和代理，这样就可以在操作对象成员的时候，触发get/set等劫持函数，做一些自己要做的特殊处理
+let proxyObj = new Proxy(obj, {
+    get(target, key){
+        console.log('GETTER')
+        return target[key]
+    },
+    set(target, key, val){
+        console.log('GETTER')
+        target[key] = val
+        return key
+    }
+})
+
+console.log(proxyObj) //返回代理对象是被劫持的
+console.log(proxyObj.x) // 获取的某个成员值的时候，就会触发get函数
+proxyObj.x = 1000 //设置某个成员值的时候，就会触发set函数
+
+//=========================================================
+
+//创建监听器，对对象进行监听，当对象中的某个成员发生改变，触发回调函数执行(前提是：对象是基于observable修饰的，将其变为可监听的了)
+observe(obj, change => {
+    console.log(change)//{type: 'update', object: Proxy, oldValue: 10,name: 'x', newValue: 1000}
+})
+obj.x = 1000
+
+//=========================================================
+
+//!!**!!obervable无法直接装饰原始值，需要使用observable.box处理
+let x = observable.box(10)
+console.log(x)
+//ObservableValue{name:'ObservableValue@1', isPendingUnobservation:false, isBeingObserved: false, observers: Set(0), diffValue: 0, ...}
+console.log(x.get()); //10
+
+observe(x,change=>{
+    console.log(change)
+})
+
+x.set(1000)
+
+//=========================================================
+
+class store {
+	@observable x = 10
+    @observable count = 3
+    @observable price = 120
+    // computed: 装饰器，创建一个具备计算缓存的计算属性
+    @computed get total(){
+        console.log('total run')
+        return this.count*this.price
+    }
+}
+let store = new Store
+
+autorun(()=>{
+    console.log('autorun:', store.x, store.count*store.price)
+})
+setTimeout(()=>{
+    store.x = 1000
+},1000)
+
+//=========================================================
+//reaction和autorun一样，都是监听器，提供更细的状态监测（默认首次不会执行）
+
+class store {
+	@observable x = 10
+    @observable count = 3
+    @observable price = 120
+    // computed: 装饰器，创建一个具备计算缓存的计算属性
+    @computed get total(){
+        console.log('total run')
+        return this.count*this.price
+    }
+}
+let store = new Store
+
+reaction(
+	() => { store.x, store.total }//需要自己设置依赖项
+    () => {
+    	console.log('reaction:', store.x, store.total)//由依赖项产生的变化结果展示
+	}
+)
+setTimeout(()=>{
+    store.x = 1000
+},1000)
+
+//=========================================================
+//confiure是mobx全局配置函数
+configure({
+    //强制使用action方法的模式，去修改状态，不允许单独基于实例修改状态了
+    enforceAction: 'observed'
+})
+
+class store {
+	@observable x = 10
+    @observable y = 20
+    
+    @action.bound change(){  //action.bound方法，无论方法怎么执行，都可以将this指向实例
+        this.x = 1000,
+        this.y = 2000
+    }
+}
+let store = new Store
+
+autorun(()=>{
+    console.log('autorun:', store.x, store.y)
+})
+setTimeout(()=>{
+    //修改多个状态，会让autorun监听器执行多次
+    //store.x = 1000
+    //store.y = 2000
+    
+    //使用action修饰，可以保证函数中的状态更改变为异步批处理，真是项目中，状态值的更改，我们建议都使用这种方式
+    store.change()// this=>store
+    
+    runInAction(()=>{
+        //这里执行的属性修改操作，效果与store@action change(){}效果一致
+    })
+    
+},1000)
+
+//=========================================================
+
+class Store {
+    @observable x = 10
+    @action.bound async change(){
+        let res = 0
+        try {
+            res = await query()
+        }catch(_){}
+        //异步结束后操作数据，修改数据，最好在外面包裹一个runInAction，否则有可能会报错
+        runInAction(()=>{
+            this.x= res
+        })
+    }
+}
+
+let store = new Store
+autorun(()=>{
+    console.log('autorun:' store.x)
+})
+store.change()
+```
+
+### 5、`mobx`应用
+
+```js
+// ./src/store/index.js
+// 合并各个模块的store
+
+import TaskStore from './TaskStore'
+import PersonalStore from './PersonalStore'
+
+class Store {
+    constructor(){
+        this.task = new TaskStore(this)
+        this.personal = new PersonalStore()
+    }
+}
+export default new Store()
+
+//store = {
+//	task:{
+//        taskList:null,
+//        __proto__:TaskStore.prototype
+//        	...
+//    },
+//    personal:{
+//        info:null,
+//        __proto__:PersonalStore.prototype
+//        	...
+//    },
+//    __proto__:store.prototype
+//}
+```
+
+```js
+// ./src/store/TaskStore.js
+import { observable, action, runInAction } from 'mobx'
+import { getTaskList } from '../api'
+
+class TaskStore {
+    constructor(root){
+        //root:最外层Store类的实例，包含各个盘块store的实例
+        this.root = root
+        //我们以后可以在TASK板块中，基于this.root获取根store实例，基于根store实例，访问其他板块store的实例
+    }
+    @observable tasklist = null
+    
+    //异步获取全局任务
+    @action.bound async queryAllTaskAction(){
+        let list = []
+        try {
+            let result = await getTaskList[0]
+            if(+result.code === 0) list = result.list
+        }catch(err){
+            console.log('error',err)
+        }
+        runInAction(()=>{
+            this.taskList = list
+        })
+    }
+    
+    //同步删除某一任务
+    @action.bound removerTaskAction(id){
+        let { taskList } = this
+        if(!Array.isArray(taskList)) return
+        this.taskList = taskList.filter(item => {
+            return +item.id !== +id
+        })
+    }
+    
+    //同步修改某一任务
+    @action.bound updateTaskAction(){
+        let { taskList } = this
+        if(!Array.isArray(taskList)) return
+        this.taskList = taskList.map(item => {
+            if(+item.id === +id){
+                item.state = 2
+                item.complete =new Date().toLocaleString('zh-CN')
+            }
+            return item
+        })
+    }
+}
+export default TaskStore
+
+
+//========================以上是mobx5的示例，以下是mobx6版本的示例=======================
+
+// ./src/store/TaskStore.js
+import { observable, action, runInAction, makeObservable, makeAutoObservable } from 'mobx'
+import { getTaskList } from '../api'
+
+class TaskStore {
+    constructor(root){
+        //root:最外层Store类的实例，包含各个盘块store的实例
+        this.root = root
+        //我们以后可以在TASK板块中，基于this.root获取根store实例，基于根store实例，访问其他板块store的实例
+        
+        //第一种方案：基于makeObservable给状态和方法设置装饰效果
+        makeObservable(this, {
+            taskList:observable,
+            queryAllTaskAction:action.bound,
+            removerTaskAction:action.bound,
+            updateTaskAction:action.bound
+        })
+        
+        //第二种方案：使用makeAutoObservable，是对makeObservable的加强，可以自己给状态和方法设置装饰，等同于第一种方案
+        makeAutoObservable(this)
+    }
+    tasklist = null
+    
+    //异步获取全局任务
+    async queryAllTaskAction(){
+        let list = []
+        try {
+            let result = await getTaskList[0]
+            if(+result.code === 0) list = result.list
+        }catch(err){
+            console.log('error',err)
+        }
+        runInAction(()=>{
+            this.taskList = list
+        })
+    }
+    
+    //同步删除某一任务
+    removerTaskAction(id){
+        let { taskList } = this
+        if(!Array.isArray(taskList)) return
+        this.taskList = taskList.filter(item => {
+            return +item.id !== +id
+        })
+    }
+    
+    //同步修改某一任务
+    updateTaskAction(){
+        let { taskList } = this
+        if(!Array.isArray(taskList)) return
+        this.taskList = taskList.map(item => {
+            if(+item.id === +id){
+                item.state = 2
+                item.complete =new Date().toLocaleString('zh-CN')
+            }
+            return item
+        })
+    }
+}
+export default TaskStore
+```
+
+```js
+// ./src/store/PersonalStore.js
+import { observable, action } from 'mobx'
+
+class PersonalStore {
+    constructor(root){
+        //root:最外层Store类的实例，包含各个盘块store的实例
+        this.root = root
+        //我们以后可以在TASK板块中，基于this.root获取根store实例，基于根store实例，访问其他板块store的实例
+    }
+    @observable info = null
+    @action.bound queryInfo(){
+        //...
+    }
+}
+export default PersonalStore
+```
+
+```jsx
+// ./src/index.jsx
+
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import Task from './views/Task'
+
+import store from './store'
+import { Provider } from 'mobx-redux'
+
+const root = ReactDOM.createRoot(document.getElementById('root'))
+root.render(
+	<Provider {...store} >
+    	<Task />
+    </Provider>
+)
+//基于Provider，把各个板块Store的实例，都放在上下文中
+```
+
+```jsx
+// ./src/views/Task.jsx
+
+import React, { useStore, useEffect } from 'react'
+import './Task.less'
+
+import { observer, inject } from 'mobx-react'
+
+@observer  //状态更改，让视图更新
+@inject('task', 'personal')  //把之前基于Provider放在上下文中，各个板块的store实例，想用谁就拿谁，以属性的方法，传递给组件
+class Task extends React.component{
+    const { task } = this.props
+}
+export default Task
+//========================================
+
+const Task = function Task(props){
+    //基于属性，获取TaskStore实例
+    let { task } = props
+    //...
+}
+export default inject('task', 'personal')(observer(Task))
+```
+
+
+
+## 六、React生态-React路由
+
+### 1、`hash`路由及`history`路由
+
+当代前端开发，大部分都以SPA单页面应用开发为主
+
+> 管理系统、移动端`WebAPP(APP)`、其他情况
+
+前端路由机制，就是构建SPA单页面应用的利器
+
+`spa：Single Page Application`
+
+`mpa：Multi Page Application`
+
+（1）哈希(`hash`)路由
+
+原理：每一次路由跳转，都是改变页面的`hash`值，并且监听`hashchange`事件，渲染不同的内容
+
+```html
+<body>
+    <nav class="nav-box">
+        <a href="#">首页</a>
+        <a href="#/product">产品中心</a>
+        <a href="#/personal">个人中心</a>
+    </nav>
+    <div class="view-box"></div>
+</body>
+<script>
+    //获取渲染内容的容器
+    const viewBox = document.querySelector('.view-box')
+    //构建一个路由匹配表，每当我们重新加载页面，或者路由切换(切换哈希值)，都先到这个路由表中进行匹配，根据当前页面的哈希值，匹配要渲染的内容(组件)
+    const routers = [{
+        path: '/',
+        component: '首页的内容'
+    },{
+        path: '/product',
+        component: '产品中心的问题'
+    },{
+        path: '/personal',
+        component: '个人中心的内容'
+    }]
+    
+    //路由匹配的方法
+    const routerMatch = function routerMatch(){
+        let hash = location.hash.substring(1)
+        let text = ""
+        router.forEach(item=>{
+            if(item.path === hash){
+                text = item.component
+            }
+        })
+        viewBox.innerHTML = text
+    }
+    
+    //一进来要展示的是首页的信息，所以默认改变HASH值
+    location.hash = '/'
+    routerMatch()
+    
+    // 监测HASH值的变化，重新进行路由匹配
+    window.onhashchange = routerMatch
+</script>
+```
+
+`Hash`路由，改变页面的哈希值`(#/xxx)`，主页面是不会刷新的，根据不同的哈希值，让容器中渲染不同的内容组件
+
+（2）`History`路由
+
+利用了`H5`中的`HistoryAPI`来实现页面地址切换（可以不刷新页面），根据不同的地址，到路由表中进行匹配，让容器中渲染不同的内容
+
+问题：我们切换的地址，在页面不刷新的情况下是没问题的，但是如果页面刷新，这个地址是不存在，会报404错误，此时我们需要服务器的配合，在地址不存在的情况下，也可以把主页面内容返回
+
+```
+History {length: 1, scrollRestoration: 'auto', state: null}
+	 length: 1
+	 scrollRestoration: "auto"
+	 state: null
+	>[[Prototype]]: History
+		>back: f back()			//返回地址
+		>forward: f forward()
+		>go: f go()
+		 length: (...)
+		>pushState: f pushState()         //新增历史记录，会增加历史记录
+		>replaceState: f replaceState()		//替换现有记录，不会增加历史记录
+		 scrollRestoration: (...)
+		 state: (...)
+		>constructor: f History()
+		 Symbol(Symbol.toStringTag): "History"
+		>get length: f length()
+		>get scrollRestoration: f scrollRestoration()
+		>set scrollRestoration: f scrollRestoration()
+		>get state: f state()
+        >[[Prototype]]: Object
+```
+
+
+
+```html
+<body>
+    <nav class="nav-box">
+        <a href="/">首页</a>
+        <a href="/product">产品中心</a>
+        <a href="/personal">个人中心</a>
+    </nav>
+    <div class="view-box"></div>
+</body>
+<script>
+    //获取渲染内容的容器
+    const viewBox = document.querySelector('.view-box')
+    const navBox = document.querySelector('.nav-box')
+    
+    //点击a标签实现页面地址切换，但是不能刷新页面
+    navBox.onclick = function (ev) {
+        let target = ev.target;
+        if (target.tagName === "A"){
+            ev.preventDefault() //阻止a标签页面跳转，阻止刷新的默认行为
+            history.pushState({},'',target.href)
+            
+            //去路由匹配
+            routerMatch()
+        }
+    }
+    
+    //构建一个路由匹配表，每当我们重新加载页面，或者路由切换(切换哈希值)，都先到这个路由表中进行匹配，根据当前页面的哈希值，匹配要渲染的内容(组件)
+    const routers = [{
+        path: '/',
+        component: '首页的内容'
+    },{
+        path: '/product',
+        component: '产品中心的问题'
+    },{
+        path: '/personal',
+        component: '个人中心的内容'
+    }]
+    
+    //路由匹配的方法
+    const routerMatch = function routerMatch(){
+        let path = location.pathname
+        let text = ""
+        router.forEach(item=>{
+            if(item.path === path){
+                text = item.component
+            }
+        })
+        viewBox.innerHTML = text
+    }
+    
+    //默认展示首页
+    history.pushState({},"", "/")
+    routerMatch()
+    
+    //监听popstate地址变化事件,此事件：执行go/forward/back等方法可以触发，但是执行pushState/replaceState等方法无法触发
+    window.onpopstate = routerMatch
+	
+</script>
+```
+
+### 2、`react-router-dom`
+
+```
+yarn add react-router-dom@5.3.4
+```
+
+```jsx
+// ./src/App.jsx
+import React from "react"
+import { HashRouter, Route, Switch, Redirect, Link } from 'react-router-dom'
+
+import A from './views/A';
+import B from './views/B'
+import C from './views/C'
+
+import styled from "styled-components"
+
+/*导航样式*/
+const NavBox = styled.nav`
+	a{
+		margin-right: 10px;
+		color: #000
+	}
+`
+
+const App = function App(){
+    //基于<HashRouter>把所有要渲染的内容包起来，开启HASH路由
+    //后续用到的<Router>、<Link>等组件，都需要在HashRouter/BrowserRouter中使用
+    //开启后，整个页面地址，默认会设置一个 #/ 哈希值
+    return(
+    	<HashRouter>
+        	/*导航部分*/
+        	<nav>
+            	<Link to='/'>A</Link>  /*Link实现路由切换跳转的组件，最后渲染完毕的结果依然是a标签，它可以根据路由模式，自动设定A切换的方式,此标签必须hashrouter中或者browserrouter中使用，否则会报错*/
+            	<Link to='/B'>B</Link>
+            	<Link to='/C'>C</Link>
+        	</nav>
+        
+        	/*路由容器：每一次页面加载或者路由切换完毕，都会根据当前的哈希值，到这里和每一个Router进行匹配*/
+        	<div className="content">
+                <Switch>/*Switch: 确保路由中，只要有一项匹配，则不再继续向下匹配，exact设置匹配模式为精准匹配*/
+                    <Route exact path='/' component={A} />
+                    <Route path='/b' component={B} />
+                    <Route path='/c' component={C} />
+                    
+                    <Route path='/c' component={()={
+                         //当路由地址匹配后，先把render函数执行，返回的返回值就是我们需要渲染的内容
+                            //此函数中，可以处理一些事情，例如登录态校验
+                            if (isLogin){
+                                return<C />
+                            }
+                            return <Redirect to="/login">
+                        })} />
+                                
+                    <Route path='*' component={404组件} />
+                    /*放在最后一项，path设置*或者不写，意思是以上都不匹配，则执行这个规则*/
+                                
+                    <Redircet to='/' from='/' exact />
+                    /*当然也可以不设置404组件，而是重定向到默认 / 地址，Redircet组件*/
+                    /*to重定向地址，from从哪个地址来，exact设置精准匹配*/
+                                
+                </Switch>
+        	</div>
+        </HashRouter>
+    )
+}
+
+export default App
+```
+
+```jsx
+// ./src/views/A.jsx
+import  React from "react";
+
+const A = function A(){
+    return(
+    	<div className='box'>
+    		A组件内容
+        </div>
+    )
+}
+
+export default A
+```
+
+```jsx
+// ./src/views/B.jsx
+import  React from "react";
+
+const B = function B(){
+    return(
+    	<div className='box'>
+    		B组件内容
+        </div>
+    )
+}
+
+export default B
+```
+
+```jsx
+// ./src/views/C.jsx
+import  React from "react";
+
+const C = function C(){
+    return(
+    	<div className='box'>
+    		C组件内容
+        </div>
+    )
+}
+
+export default C
+```
+
+> [!TIP]
+>
+> 路径匹配规则
+>
+> ​	路由地址：Router中path字段指定的地址
+>
+> ​	页面地址：浏览器URL后面的哈希值
+>
+> 
+>
+> | 页面地址 | 路由地址 | 非精准匹配 | 精准匹配 |
+> | :------: | :------: | :--------: | :------: |
+> |    /     |    /     |    true    |   true   |
+> |    /     |  /login  |   false    |  false   |
+> |  /login  |    /     |    true    |  false   |
+> |   /a/b   |    /a    |    true    |  false   |
+> |   /a/b   |   /a/b   |    true    |   true   |
+> |  /a2/b   |    /a    |   false    |  false`  |
+>
+> `/` 和 `/xxx` 算是地址中的一个整体！！
+>
+> 非精准匹配：
+>
+> - 页面地址和路由地址一样，返回true
+> - 页面地址中，包含一套完整的路由地址，返回true
+>
+> 精准匹配
+>
+> - 两个地址只有一摸一样才匹配（最后一个/可以忽略）
+
+### 3、多级路由的分析和构建
+
+每次路由跳转，都是从一级路由开始匹配，先匹配一级路由，进入匹配的组件，在组件内容，再去匹配二级路由
+
+`app`主组件
+
+```jsx
+// ./src/App.jsx
+import React from "react"
+import { HashRouter, Route, Switch, Redirect, Link } from 'react-router-dom'
+
+import A from './views/A';
+import B from './views/B'
+import C from './views/C'
+
+import styled from "styled-components"
+
+/*导航样式*/
+const NavBox = styled.nav`
+	a{
+		margin-right: 10px;
+		color: #000
+	}
+`
+
+const App = function App(){
+
+    return(
+    	<HashRouter>
+        	/*导航部分*/
+        	<nav>
+            	<Link to='/a'>A</Link>
+            	<Link to='/b'>B</Link>
+            	<Link to='/c'>C</Link>
+        	</nav>
+        
+        	/*路由容器*/
+        	<div className="content">
+                <Switch>
+                    <Redirect exact from='/' to='/a'>
+                    <Route path='a/' component={A} />
+                    <Route path='/b' component={B} />
+                    <Route path='/c' component={C} /> 
+                    <Redirect to='/a'>
+                </Switch>
+        	</div>
+        </HashRouter>
+    )
+}
+
+export default App
+```
+
+在`app`中的二级组件`A`
+
+```jsx
+// ./src/views/a/A.jsx
+import  React from "react";
+import { Link, Switch, Route, Redirect } from "react-router-dom"
+import A1 from './a/A1'
+import A2 from './a/A2'
+import A3 from './a/A3'
+
+import styled from "styled-components"
+
+/*导航样式*/
+const DemoBox = styled.div`
+	display: flex;
+	.menu{
+		font-size:12px;
+		a{
+			font-size:12px;
+			color: #000;
+			display:block;
+		}
+	}
+`
+
+const A = function A(){
+    return(
+    	<DemoBox>
+    		<div className='menu'>
+                <Link to="/a/a1">A1</Link>
+                <Link to="/a/a2">A2</Link>
+                <Link to="/a/a3">A3</Link>
+            </div>
+            <div className='view'>
+                /*配置二级路由的匹配规则，需要把一级路由地址带上，不能省略*/
+                <Switch>
+                    <Redirect exact from='/a' to='/a/a1'>
+                    <Route path="/a/a1" component={A1}>
+                    <Route path="/a/a2" component={A2}>
+                    <Route path="/a/a3" component={A3}>
+                </Switch>
+            </div>
+        </DemoBox>
+    )
+}
+
+export default A1
+```
+
+在`A`组件中三级组件`A1`
+
+```jsx
+// ./src/views/a/A1.jsx
+import  React from "react";
+
+const A1 = function A1(){
+    return(
+    	<div className='box'>
+    		A1组件内容的详细信息
+        </div>
+    )
+}
+
+export default A1
+```
+
+在`A`组件中三级组件`A2`
+
+```jsx
+// ./src/views/a/A2.jsx
+import  React from "react";
+
+const A2 = function A2(){
+    return(
+    	<div className='box'>
+    		A2组件内容的详细信息
+        </div>
+    )
+}
+
+export default A2
+```
+
+在`A`组件中三级组件`A3`
+
+```jsx
+// ./src/views/a/A3.jsx
+import  React from "react";
+
+const A3 = function A3(){
+    return(
+    	<div className='box'>
+    		A3组件内容的详细信息
+        </div>
+    )
+}
+
+export default A3
+```
+
+
+
+### 4、构建React专属路由表
+
+我们期望，在React项目中，可以对多级路由进行统一的管理，react中的路由，默认就是分散到各个组件中配置的，
+
+```jsx
+// ./src/router/index.js
+//调用组件的时候，基于属性传递路由表进来，我们根据路由表，动态设定路由的匹配规则
+import React from 'react'
+import { Switch, Route, Redirect } from 'react-router-dom'
+
+const RouterView = function RouterView(props){
+    //获取传递的路由表
+    let { routes } = props
+    return(
+    	<Switch>
+            /*循环设置路由匹配规则*/
+            {routes.map((route, index)=>{
+                let { redirect, from, to, exact, path, component: Component } = item
+                let config = {}
+                if (redirect) {
+                    config = { to }
+                    if ( from ) config.from = from
+                    if { exact } config.exact = true
+                    return <Redirect key={ index } {...config}/>//重定向的规则
+                }
+                //正常匹配规则
+                config = { path }
+                if { exact } config.exact = true
+                return <Route key={ index } {...config} render={()=>{
+                        //统一基于Render函数处理，当某个路由匹配，后期在这里可以做一些其他事情
+                        return<Component />
+                    }}/>
+            })}
+        </Switch>
+    )
+}
+export default RouterView
+```
+
+```js
+// ./src/router/routes.js
+
+//配置路由表：数组中每一项就是每一个需要配置的规则
+//	自己可以配置一些配置项，如下
+//  redirect:true 此配置是重定向
+//	from:来源的地址
+//	to:要到达的地址
+//	exact:是否精准匹配
+//	path:匹配的路径
+//	component:要渲染的组件
+//	name:路由名称(命名路由)
+//	meta:{}路由原信息,包含当前路由的一些信息，当路由匹配后，我们可以拿这些信息做一些事情
+//	children:[]子路由
+//	...
+import A from '../views/A'
+import B from '../views/B'
+import C from '../views/C'
+
+import aRoutes from './aRoutes'
+
+//一级路由的配置表
+const routes = [{
+        redirect: true,
+        from: '/',
+        to: '/a',
+        exact: true
+    },{
+		path:'/a',
+        name: 'a'
+        component: A,
+        meta: {},
+        children: aRoutes
+    },{
+		path:'/b',
+        name: 'b'
+        component: B,
+        meta: {}
+    },{
+		path:'/c',
+        name: 'c'
+        component: C,
+        meta: {}
+    },{
+        redirect: true,
+        to: '/a',
+    }]
+    
+export default routes
+```
+
+
+
+```js
+// ./src/router/aRoutes.js
+import A1 from '../views/a/A1'
+import A2 from '../views/a/A2'
+import A3 from '../views/a/A3'
+
+
+const aRoutes = [{
+        redirect: true,
+        from: '/a',
+        to: '/a/a1',
+        exact: true
+	},{
+		path:'/a/a1',
+        name: 'a-a1'
+        component: A1,
+        meta: {}
+    },{
+		path:'/a/a2',
+        name: 'a-a2'
+        component: A2,
+        meta: {}
+    },{
+		path:'/a/a3',
+        name: 'a-a3'
+        component: A3,
+        meta: {}
+    }]
+    
+export default aRoutes
+```
+
+```jsx
+// ./src/App.jsx
+import React from "react"
+import { HashRouter, Link } from 'react-router-dom'
+import RouterView from './router'
+import routes from './router/routes'
+
+import styled from "styled-components"
+
+/*导航样式*/
+const NavBox = styled.nav`
+	a{
+		margin-right: 10px;
+		color: #000
+	}
+`
+
+const App = function App(){
+
+    return(
+    	<HashRouter>
+        	/*导航部分*/
+        	<nav>
+            	<Link to='/a'>A</Link>
+            	<Link to='/b'>B</Link>
+            	<Link to='/c'>C</Link>
+        	</nav>
+        
+        	/*路由容器*/
+        	<div className="content">
+				<RouterView routes={routes}>
+                </RouterView>
+        	</div>
+        </HashRouter>
+    )
+}
+
+export default App
+```
+
+```jsx
+// ./src/views/a/A1.jsx
+import  React from "react";
+import { Link} from "react-router-dom"
+import RouterView from './router'
+import routes from './router/aRoutes'
+
+import styled from "styled-components"
+
+/*导航样式*/
+const DemoBox = styled.div`
+	display: flex;
+	.menu{
+		font-size:12px;
+		a{
+			font-size:12px;
+			color: #000;
+			display:block;
+		}
+	}
+`
+
+const A1 = function A1(){
+    return(
+    	<DemoBox>
+    		<div className='menu'>
+                <Link to="/a/a1">A1</Link>
+                <Link to="/a/a2">A2</Link>
+                <Link to="/a/a3">A3</Link>
+            </div>
+            <div className='view'>
+				<RouterView routes = { routes }/>
+            </div>
+        </DemoBox>
+    )
+}
+
+export default A1
+```
+
+
+
+### 5、React中的路由懒加载方案
+
+在真实项目中，如果我们事先把所有组件全部导入进来，再基于`Route`做路由匹配，这样：最后项目打包的时候，所有组件全部打包到一个`JS`中！
+
+这样！`JS`会非常的大，第一次加载页面的时候，从服务器获取这个`JS`文件就会用很久的事件，导入此阶段，页面一直处于白屏的状态。
+
+虽然说优化方案中，有建议合并为一个`JS`文件，这样减少`HTTP`网络请求的次数，但是这个`JS`文件不宜过大
+
+我们最好的处理方案是这样的！
+
+1、我们只把最开始的要展示的内容/组件打包到主`JS`中(`bundle.js`)，其余的组件，打包成独立的`JS`
+
+2、当页面加载的时候，首先只把主`JS`请求回来渲染，其余的`JS`先不加载，因为(`bundle.js`)中只有最开始要渲染的组件的代码，所以体积小，获取和渲染速度快，可以减少白屏等待的时间，其余的`JS`此时并没有加载，也不影响页面第一次渲染
+
+3、当我路由切换的时候，和哪个规则匹配，想要渲染哪个组件，再把这个组件所在的`JS`文件，动态导入进来进行渲染即可！！
+
+分割打包`JS`，按需异步加载`JS` ==>路由懒加载
+
+```jsx
+// ./src/router/index.js
+//调用组件的时候，基于属性传递路由表进来，我们根据路由表，动态设定路由的匹配规则
+import React, { Suspense } from 'react'  //**这里增加了Suspense异步加载组件
+import { Switch, Route, Redirect } from 'react-router-dom'
+
+const RouterView = function RouterView(props){
+    //获取传递的路由表
+    let { routes } = props
+    return(
+    	<Switch>
+            /*循环设置路由匹配规则*/
+            {routes.map((route, index)=>{
+                let { redirect, from, to, exact, path, component: Component } = item
+                let config = {}
+                if (redirect) {
+                    config = { to }
+                    if ( from ) config.from = from
+                    if { exact } config.exact = true
+                    return <Redirect key={ index } {...config}/>//重定向的规则
+                }
+                //正常匹配规则
+                config = { path }
+                if { exact } config.exact = true
+                return <Route key={ index } {...config} render={()=>{
+                        //统一基于Render函数处理，当某个路由匹配，后期在这里可以做一些其他事情
+                        //**这里使用了Suspense组件，将返回的组件包裹起来
+                        //**这里Suspense组件中的fallback函数是组件没有加载时，运行的函数或者返回的组件
+                        return(
+                        	<Suspense fallback={<>正在处理中...</>}>
+                                <Component />
+                            </Suspense>
+                        )
+                    }}/>
+            })}
+        </Switch>
+    )
+}
+export default RouterView
+```
+
+
+
+```js
+// ./src/router/routes.js
+import { lazy } from 'react'
+import A from '../views/A'
+//事先只把A组件（页面加载渲染的组件）导入进来，也就是打包到bundle.js中
+import aRoutes from './aRoutes'
+
+//一级路由的配置表
+const routes = [{
+        redirect: true,
+        from: '/',
+        to: '/a',
+        exact: true
+    },{
+		path:'/a',
+        name: 'a'
+        component: A,
+        meta: {},
+        children: aRoutes
+    },{
+		path:'/b',
+        name: 'b'
+        component: lazy(()=>import('../views/B')),//这里运行懒加载函数，借助React.lazy函数和ES6中的import实现，1、分割打包，每个组件单独打包为一个JS，2、按需导入，最开始渲染页面不会加载这些单独的JS，只有路由规则匹配成功，需要渲染这个组件的时候，再去加载！
+        meta: {}
+    },{
+		path:'/c',
+        name: 'c'
+        component: lazy(()=>import('../views/C')),//这里运行懒加载函数
+        meta: {}
+    },{
+        redirect: true,
+        to: '/a',
+    }]
+    
+export default routes
+```
+
+```js
+// ./src/router/aRoutes.js
+
+import { lazy } from 'react'
+
+const aRoutes = [{
+        redirect: true,
+        from: '/a',
+        to: '/a/a1',
+        exact: true
+	},{
+		path:'/a/a1',
+        name: 'a-a1'
+        component: lazy(()=> import('../views/a/A1')),
+        meta: {}
+    },{
+		path:'/a/a2',
+        name: 'a-a2'
+        component: lazy(()=> import('../views/a/A2')),
+        meta: {}
+    },{
+		path:'/a/a3',
+        name: 'a-a3'
+        component: lazy(()=> import('../views/a/A3')),
+        meta: {}
+    }]
+    
+export default aRoutes
+```
+
+```js
+//这里使用 /* webpackChunkName:"AChild" */ 增加备注名，webpack编译的时候，会将相同备注名的组件统一打包成一个JS
+{
+    path:'/a/a1',
+    name: 'a-a1'
+    component: lazy(()=> import(/* webpackChunkName:"AChild" */'../views/a/A1')),
+    meta: {}
+},{
+    path:'/a/a2',
+    name: 'a-a2'
+    component: lazy(()=> import(/* webpackChunkName:"AChild" */'../views/a/A2')),
+    meta: {}
+}
+```
+
+
+
+### 6、在组件中获取路由对象信息
+
+再`react-router-dom v5`中，基于`Route`路由匹配渲染的组件，路由会默认给每个组件传递三个属性
+
+> ```
+> <Route path='/a' component={A}>
+> ```
+>
+> 给组件传递三个属性，后期我们基于`props/this.props`获取传递的属性值
+>
+> > history
+> >
+> > location
+> >
+> > match
+>
+> ```
+> <Route path='/a' render=((props)=>{
+> 	//在render中可以获取传递的属性
+> 	//但是组件中没有这些属性，此时我们需要自己传递组件
+> 	return(<A {...props}>)
+> })>
+> ```
+>
+> 
+
+```jsx
+// ./src/router/index.js
+
+import React, { Suspense } from 'react'  
+import { Switch, Route, Redirect } from 'react-router-dom'
+
+const RouterView = function RouterView(props){
+    //获取传递的路由表
+    let { routes } = props
+    return(
+    	<Switch>
+            /*循环设置路由匹配规则*/
+            {routes.map((route, index)=>{
+                let { redirect, from, to, exact, path, component: Component } = item
+                let config = {}
+                if (redirect) {
+                    config = { to }
+                    if ( from ) config.from = from
+                    if { exact } config.exact = true
+                    return <Redirect key={ index } {...config}/>//重定向的规则
+                }
+                //正常匹配规则
+                config = { path }
+                if { exact } config.exact = true
+                return <Route key={ index } {...config} render={(props)=>{
+						//这里render中可以获取Route的路由信息，但组件Component中获取不到props信息，需要手动将props信息赋值给component中，如下，<Component {...props} />
+                        return(
+                        	<Suspense fallback={<>正在处理中...</>}>
+                                <Component {...props} />
+                            </Suspense>
+                        )
+                    }}/>
+            })}
+        </Switch>
+    )
+}
+export default RouterView
+```
+
+
+
+```jsx
+// ./src/views/A.jsx
+import  React from "react";
+
+//以下时子组件获取路由信息的第一种方式，接收来自<Component {...props} />
+const A = function A(props){
+    console.log(props) //=>{ history, location, match }
+    return(
+    	<div className='box'>
+    		A组件内容
+        </div>
+    )
+}
+export default A
+
+//这是第二种方式,使用react-router-dom中提供的hooks函数进行获取
+import  React from "react";
+import { useHistory, useLocation, useRouteMatch } from 'react-router-dom'
+const A = function A(){
+    let history = useHistory
+    let location = useLocation
+    let match = useRouteMatch
+    console.log( history, location, match)
+
+    return(
+    	<div className='box'>
+    		A组件内容
+        </div>
+    )
+}
+
+export default A
+```
+
+> [!TIP]
+>
+> 基于<Router>匹配渲染的组件，我们想获取这三个属性对象
+>
+> 1、基于props属性获取，适用于函数组件和类组件
+>
+> 2、基于Hook函数获取，只适用于函数组件
+
+```
+history对象结构如下
+其中go、goBack、goForward、push、replace常被用做编程式导航，基于js方法实现路由跳转
+>{ length: 50, action: 'pop', loaction: {...}, createHref: f, push: f, ...}
+	 action: "pop"
+	>block: f block(prompt)
+	>createHref: f createHref(location)
+	>go: f go(n)		//前进或后退几步，go(-1)后退一步
+	>goBack: f goBack()		//后退一步
+	>goForWard: f goForWard()		//前进一步
+	 length: 50
+	>listen: f listen(listener)
+	>location: {pathname: '/b', search: '', hash: '', state: undefined}
+	>push: f push(path, state)		//新增历史记录
+	>replace: f replace(path, state)		//替换当前历史记录
+	>[[Prototype]]: Object
+	
+location对象结构如下
+>{ pathname: '/b', search: '', hash: '', state: undefined }
+	 hash: ""
+	 pathname: "/b"
+	 search: ""
+	 state: undefined
+	>[[Prototype]]: Object
+	
+match对象结构如下
+>{path: '/b', url: '/b', isExact: true, params: {...}}
+	 isExact: true
+	>params: {}
+	 path: "/b"
+	 url: "/b"
+	>[[Prototype]]: Object
+```
+
+
+
+```jsx
+// ./src/components/HomeHead.jsx
+import React from 'react'
+import { Link, useHistory, useLoaction, useRouteMatch, withRouter } from 'react-router-dom'
+
+import styled from "styled-components"
+const NavBox = styled.nav`
+	a{
+		margin-right: 10px;
+		color: #000
+	}
+`
+//只要<HashRouter />或者<BrowserRouter />中渲染的组件：我们在组件内部基于useHistory、useLocation、useRouteMatch这些Hook函数，就可以获取history、location、match这些对象信息，即便这个组件并不是基于<Route>匹配渲染的
+//只有基于<Route>匹配渲染的组件，才可以基于props属性，或者这三个对象信息
+//如果当前组件是一个类组件，在<HashRouter>内，但是并没有经过<Route>匹配渲染，我们如何获取三个对象信息，基于高阶组件，自己包裹一层处理，在react-router-dom v5版本中，自带一个高阶组件 withRouter，就是用来解决这个问题的！！
+
+const HomeHead = function HomeHead(props){
+    console.log(props) //返回{}
+    console.log(useHistory()) //返回history对象
+    return(
+    	<NavBox>
+            <Link to="/a">A</Link>
+            <Link to="/b">B</Link>
+            <Link to="/c">C</Link>
+        </NavBox>
+    )
+}
+export default HomeHead
+
+//=================================以下是类组件，使用HOC获取属性=========================
+class HomeHead extends React.Component {
+    render(){
+        return(
+            <NavBox>
+                <Link to="/a">A</Link>
+                <Link to="/b">B</Link>
+                <Link to="/c">C</Link>
+            </NavBox>
+        )
+    }
+}
+
+const Handle = function Handle(Component){
+    //Component:真正需要渲染的组件
+    //返回一个代理/高阶组件（导出去供别的地方调用就是hoc组件）
+    let history = useHistory()
+    let location = useLocation()
+    let match = useRouteMatch()
+    return function HOC(props){
+        //props:调用HOC传递的属性，其实这些属性原本是想传递给HomeHead的
+        //hoc是个函数组件，我们可以在这里基于HOOK函数获取需要的三个对象信息，然后手动作为属性，传递给HomeHead
+        return <Component {...props} history={history} location={location} match={match}/>
+    }
+}
+export default Handle(HomeHead)
+
+//===================================以下使用withRouter获取对象属性=========================
+//仅在V5版本中使用
+class HomeHead extends React.Component {
+    render(){
+        return(
+            <NavBox>
+                <Link to="/a">A</Link>
+                <Link to="/b">B</Link>
+                <Link to="/c">C</Link>
+            </NavBox>
+        )
+    }
+}
+export default withRouter(HomeHead)
+//这里withRouter就是HOC组件
+```
+
+```jsx
+// ./src/App.jsx
+import React from "react"
+import { HashRouter } from 'react-router-dom'
+import RouterView from './router'
+import routes from './router/routes'
+import HomeHead from './components/HomeHead'
+
+import A from './views/A';
+import B from './views/B'
+import C from './views/C'
+
+import styled from "styled-components"
+
+/*导航样式*/
+const NavBox = styled.nav`
+	a{
+		margin-right: 10px;
+		color: #000
+	}
+`
+
+const App = function App(){
+    return(
+    	<HashRouter>
+        	/*导航部分*/
+			<HomeHead />
+        	/*路由容器：每一次页面加载或者路由切换完毕，都会根据当前的哈希值，到这里和每一个Router进行匹配*/
+        	<div className="content">
+				<RouterView routes={ routes }>
+        	</div>
+        </HashRouter>
+    )
+}
+
+export default App
+```
+
+> [!TIP]
+>
+> 所有组件最好都包裹在<HashRouter>、<BrowserRouter>中，只有这样的组件，我们才能在每个组件中，获取history、location、match对象信息
+>
+> 1、如果是基于<Route>匹配渲染的
+>
+> ​	>基于props属性获取，需要在Route组件上渲染render函数，并在render返回的组件上，挂载props属性，这样子组件就可以通过`props`或者`this.props`或者`Hook`函数获取
+>
+> 2、如果不是基于<Route>匹配渲染的
+>
+> ​	>可以直接基于`Hook`函数获取，如果是类组件，需要使用带`withRouter`函数或者`HOC`高阶组件进行处理获取对象属性，如果是函数组件，可以直接使用`Hook`函数	
+
+
+
+### 7、路由跳转及传参方案
+
+路由跳转方案：
+
+方案一：`Link`跳转
+
+```jsx
+<link to="/xxx">导航</link>
+<link to={{
+        pathname:'/xxx',
+        search:'',
+        state: {}
+    }}>导航</link>
+<link to="/xxx" replace>导航</link>
+```
+
+方案二：编程式导航
+
+```js
+history.push('/c')
+history.push({
+        pathname:'/xxx',
+        search:'',
+        state: {}
+    })
+history.replace('/c')
+```
+
+传参方案一：问号传参
+
+```jsx
+// ./src/views/B.jsx
+import  React from "react";
+import { useHistory } from 'react-router-dom'
+
+
+const B = function B(){
+	let history = useHistory()
+    return(
+    	<div className='box'>
+    		B组件内容
+            <button onClick={()=>{
+                //编程式导航，点击后转到/c
+            	history.push('/c')
+                //传参方案一：问号传参
+                    //>传递的信息出现在url地址上，丑，不安全，长度限制
+                    //>信息是显式的，即便在目标路由内刷新，传递信息也在
+                history.push('/c?id=100&name=zhangsan')
+                history.push({
+                    pathname:'/c',
+                    search: 'id=100&name=zhangsan'  //search存储就是问号传参信息，要求是urlencoded字符串
+                }) 
+            }}>按钮</button>
+        </div>
+    )
+}
+export default B
+```
+
+传参方案二：路径参数（把需要传递的值，作为路由路径的一部分）
+
+```js
+// ./src/router/routes.js
+import { lazy } from 'react'
+import A from '../views/A'
+import aRoutes from './aRoutes'
+
+//一级路由的配置表
+const routes = [
+    //...
+    ,{
+		path:'/b',
+        name: 'b'
+        component: lazy(()=>import('../views/B')),
+        meta: {}
+    },{
+		path:'/c/:id?/:name?', 
+        name: 'c'
+        component: lazy(()=>import('../views/C')),
+        meta: {}
+    },
+    //...    
+        ]
+    
+export default routes
+//每一次路由地址的匹配，都是基于path-to-regexp@^1.2.0处理的
+//path:'/c/:id/:name'只有 /c/100/zhangsan 这样的地址才可以匹配
+//":"就是设置动态规则
+//"?"就是可传也可以不传
+//path:'/c/:id?/:name?'可以匹配很多地址 例如/c，/c/100，/c/100/zhangsan
+```
+
+```jsx
+// ./src/views/B.jsx
+import  React from "react";
+import { useHistory } from 'react-router-dom'
+
+
+const B = function B(){
+	let history = useHistory()
+    return(
+    	<div className='box'>
+    		B组件内容
+            <button onClick={()=>{
+                history.push('/c/100/zhangsan')
+            }}>按钮</button>
+        </div>
+    )
+}
+export default B
+//方案二：路径传参
+//传递的信息也在url中，问问号传参看起来漂亮一些，但是也存在安全和场地的限制
+//因为信息都在地址中，即便在目标组件刷新，传递的信息也在
+```
+方案三：隐式传参
+
+在传递的信息不会出现在url地址中，安全，美观，也没有限制，
+
+在目标组件内刷新，传递的信息就丢失了
+
+```jsx
+// ./src/views/B.jsx
+import  React from "react";
+import { useHistory } from 'react-router-dom'
+
+
+const B = function B(){
+	let history = useHistory()
+    return(
+    	<div className='box'>
+    		B组件内容
+            <button onClick={()=>{
+                history.push({
+                    pathname: '/c'
+                    state: {
+                    	id: 100,
+                    	name: 'zhangsan'
+                	}
+                })
+            }}>按钮</button>
+        </div>
+    )
+}
+export default B
+//方案二：路径传参
+//传递的信息也在url中，问问号传参看起来漂亮一些，但是也存在安全和场地的限制
+//因为信息都在地址中，即便在目标组件刷新，传递的信息也在
+```
+
+
+
+
+
+参数接收方案
+
+```jsx
+// ./src/views/C.jsx
+import  React from "react";
+import { useLocation, useRouteMatch, useParams } from 'react-router-dom'
+import qs from 'qs'
+
+//仅限于问号传参的时候用
+const C = function C(){
+    let location = useLocation()
+    console.log(location.search) //"?id=100&name=zhangsa"
+    let query = qs.parse(location.search.substring(1))
+    let { id, name } = query
+    
+    return(
+    	<div className='box'>
+    		C组件内容
+        </div>
+    )
+}
+export default C
+
+//=========================也可以依托URLSearchParams来处理=========================
+//仅限于问号传参的时候用
+const C = function C(){
+    let location = useLocation()
+    console.log(location.search) //"?id=100&name=zhangsa"
+	let usp = new URLSearchParams(location.search)
+    let id = usp.get("id")
+    let name = usep.get("name")
+    
+    return(
+    	<div className='box'>
+    		C组件内容
+        </div>
+    )
+}
+export default C
+
+//=========================可以使用useRouteMatch来处理=========================
+//仅限于路径传参的时候用
+const C = function C(){
+    let match = useRouteMatch()
+    console.log(match.params) //=> { id:100, name:"zhangsan"}
+
+    
+    return(
+    	<div className='box'>
+    		C组件内容
+        </div>
+    )
+}
+export default C
+
+//=======================也可以使用useParams来处理==============================
+//仅限于路径传参的时候用
+const C = function C(){
+    let params = useParams()
+    console.log(params) //=> { id:100, name:"zhangsan"}
+    return(
+    	<div className='box'>
+    		C组件内容
+        </div>
+    )
+}
+export default C
+
+//=========================可以使用uselocation来处理隐式传参============================
+//仅限于隐式传参的使用
+const C = function C(){
+    let location = useLocation()
+    console.log(location.state) //{id:100, name:"zhangsan"}
+    return(
+    	<div className='box'>
+    		C组件内容
+        </div>
+    )
+}
+export default C
+```
+
+
+### 8、`NavLink`和`Link`的区别
+
+```js
+import { Link, navLink } from 'react-route-dom'
+
+都是实现路由跳转的，语法上几乎一样，区别就是每一次页面加载或者路由切换完毕，都会拿最新的地址，和NavLink中的to指定的地址（或者pathname地址）进行匹配
+匹配上的这一项，会默认设置active选中样式类，（我们也可以自己基于activeClassName手动修改类名）
+
+基于这样的机制，我们就可以给选中的导航设置相关的选中样式！！
+```
+
+### 9、`router`V6版本的基础操作
+
+在`v6`版本，移除了Switch（新增了Routes）、Redirect（新增Navigate）、withRouter（需要自己写）
+
+    所有的路由匹配规则放在Routes下，V5版本是Switch，每一条规则的匹配还是<Route>
+        路由匹配成功的时候，不再基于component及render控制渲染的组件，而是基于element，语法格式是<Component />
+        不再需要Switch，默认就是一个匹配成功，就不再匹配下面的了
+        不再需要exact，默认每一项就是精准匹配
+        原有的<Redirect to="">操作，被<Navigate to="">代替
+    <Navigate>组件，路由中一旦加载就会根据to跳转到指定路由
+        <Navigate to="/"  replace={true}>
+        <Navigate to={{ ...这里是JS对象 }} >，对象里面有pathname和search属性
+
+```jsx
+// ./src/App.jsx
+import React from "react"
+import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
+import HomeHead from './components/HomeHead'
+
+import A from './views/A'
+import A1 from './views/a/A1'
+import A2 from './views/a/A2'
+import A3 from './views/a/A3'
+
+import B from './views/B'
+import C from './views/C'
+
+import styled from "styled-components"
+
+/*导航样式*/
+const NavBox = styled.nav`
+	a{
+		margin-right: 10px;
+		color: #000
+	}
+`
+
+const App = function App(){
+    return(
+    	<HashRouter>
+        	/*导航部分*/
+			<HomeHead />
+        	/*路由容器*/
+        	<div className="content">
+				<Routes>
+                    <Route path='/' element={<Navigate to="/" />}>
+                    <Route path="/a" element={<A />}/>
+                    //v6版本中，要求所有路由（二级路由或者多级路由），不再分散到各个组件中编写，而是统一都写在一起进行处理
+                        <Route path='/a' element={<Navigate to="/a/a1" />}>
+                        <Route path='/a/a1' element{ <A1 />}>
+                        <Route path='/a/a2' element{ <A2 />}>
+                        <Route path='/a/a3' element{ <A3 />}>
+                    </Route>
+                    <Route path="/b" element={<B />}/>
+                    <Route path="/c" element={<C />}/>
+                    <Route path="*" element={<Navigate to="/a" />}/>
+                </Routes>
+        	</div>
+        </HashRouter>
+    )
+}
+
+export default App
+```
+
+```jsx
+// ./src/views/a/A.jsx
+import  React from "react";
+import { Link, Outlet} from "react-router-dom"
+
+import styled from "styled-components"
+
+/*导航样式*/
+const DemoBox = styled.div`
+	display: flex;
+	.menu{
+		font-size:12px;
+		a{
+			font-size:12px;
+			color: #000;
+			display:block;
+		}
+	}
+`
+
+const A = function A(){
+    return(
+    	<DemoBox>
+    		<div className='menu'>
+                <Link to="/a/a1">A1</Link>
+                <Link to="/a/a2">A2</Link>
+                <Link to="/a/a3">A3</Link>
+            </div>
+            <div className='view'>
+                //Outlet:路由容器，用来渲染二级（多级）路由匹配的内容
+				<Outlet/>
+            </div>
+        </DemoBox>
+    )
+}
+
+export default A
+```
+
+```jsx
+// ./src/views/a/A1.jsx
+import  React from "react";
+
+const A1 = function A1(){
+    return(
+    	<div className='box'>
+    		A1组件内容的详细信息
+        </div>
+    )
+}
+
+export default A1
+```
+
+### 10、`router`V6版本路由及传参
+
+在`V6`版本中，即便当前版本中是基于<Route>匹配渲染的，也不会基于属性，把`history`、`location`、`match`传递给组件
+
+想获取相关的信息，我们只能基于`Hook`函数处理
+
+> 首先要确保，需要使用路由`Hook`组件，是在`Router`（这里指的是`HashRouter`和`BrowserRouter`组件中包裹中）,都可以通过`hook`函数拿到需要的对象
+>
+> 实现路由跳转的方式
+>
+> > <Link to=''>、<NavLink to=''>，点击跳转路由
+> >
+> > <Navigate to=''>遇到这个组件就会跳转
+> >
+> > 编程式导航，取消了`histoury`函数，换成了`navigate`函数进行导航
+>
+> 传参方案
+>
+> > 问号传参
+> >
+> > ```
+> > navigate({
+> >         pathname:'/c'
+> >         search:'?id=100&name=zhangsan'
+> >     })
+> > ```
+> >
+> > 问号接收信息：在其他组件使用`useLocation`接收参数，使用`qs`或者`URLSearchParams`,`useSearchParams()`进行解析
+> >
+> > ------------------------------------------------------------------------------------------------------------------------------------------------------------
+> >
+> > 路径传参
+> >
+> > 路由表设置规则同`V5`
+> >
+> > ```
+> > navigate('/c/100/zhangsan')
+> > ```
+> >
+> > 路径接收信息：在其他组件不可以使用`useMatch`，无法获取信息，可以使用`useParams`
+> >
+> > --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+> >
+> > 隐式传参
+> >
+> > ```
+> > navigate('/c',{
+> > 	//隐式传参信息
+> > 	state:{
+> > 		id:100,
+> > 		name:'zhangsan'
+> > 	}
+> > })
+> > ```
+> >
+> > 隐式接收信息：使用`useLocation.state`接收信息
+
+```jsx
+// ./src/views/B.jsx
+import  React from "react";
+import { useNavigate } from 'react-router-dom'
+
+
+const B = function B(){
+    const navigate = useNavigate()
+    navigate('/c')
+    navigate('/c',{replace: true})
+    navigate({
+        pathname: '/c'
+    })
+    navigate({
+        pathname:'/c'
+        search:'?id=100&name=zhangsan'
+    })
+    
+    const handle = () => {
+        
+    }
+    
+    return(
+    	<div className='box'>
+    		B组件内容
+            <button onClick={handle}>按钮</button>
+        </div>
+    )
+}
+export default B
+```
+
+```jsx
+// ./src/views/C.jsx
+import  React from "react";
+import { useLocation, useSearchParams, useParams } from 'react-router-dom'
+import qs from 'qs'
+
+//仅限于问号传参的时候用
+const C = function C(){
+    let location = useLocation()
+    console.log(location.search) //"?id=100&name=zhangsa"
+    let query = qs.parse(location.search.substring(1))
+    let { id, name } = query
+    
+    return(
+    	<div className='box'>
+    		C组件内容
+        </div>
+    )
+}
+export default C
+
+
+//==================================使用useSearchParams===================
+//仅限问号传参的时候用
+const C = function C(){
+	let [ usp ] = useSearchParams()
+    let id = usp.get('id')
+    let name = usp.get('name')
+    console.log(id, name)
+    
+    return(
+    	<div className='box'>
+    		C组件内容
+        </div>
+    )
+}
+export default C
+
+//===================================使用useParams============================
+//仅限路径传参
+const C = function C(){
+	const params = useParams()
+    console.log(params)
+    return(
+    	<div className='box'>
+    		C组件内容
+        </div>
+    )
+}
+export default C
+
+//=====================================使用useLocation.state==================
+//仅限隐式传参
+const C = function C(){
+	const location = useLocation()
+    console.log(location.state)//{id:100, name:"zhangsan"}
+    return(
+    	<div className='box'>
+    		C组件内容
+        </div>
+    )
+}
+export default C
+```
+
+在V6中，常用的路由Hook
+
+> `useNavigate` -> 代替5中的`useHistory`：实现编程式导航
+>
+> `useLocation` -> 5中也有，获取`location`对象信息，`pathname/search/state`
+>
+> `useSearchParams` -> 6中新增的，获取问号传参信息，取到的结果是一个`URLSearchParams`对象
+>
+> `useParams` -> 5中也有，获取路径参数匹配的信息
+>
+> ----
+>
+> `useMatch(pathname)` -> 代替5中的`useRouteMatch`，5中的这个`hook`有用，可以基于`params`获取路径参数匹配的信息，但是在6中，这个`hook`需要我们自己传递地址，而且`params`中也没有获取匹配的信息，用的就比较少了
+
+### 11、`router`V6版本路由表
+
+```jsx
+// ./src/router/index.js
+
+import  routes from './routes'
+import { Routes, Route, useNavigate, useLocation, useParams, useSearchParams } from 'react-router-dom'
+import { Suspense } from 'react'
+//统一渲染的组件：在这里可以做一些事情，，例如权限/登录态校验，传递属性。。。
+const Element = function Element(props){
+    let { component: Component } = props
+    
+    const navigate = useNavigate(),
+          location = useLocation(),
+          params = useParams(),
+          [ usp ] = useSearchParams()
+    
+    return<Component navigate={ navigate } location={ location } params={ params } usp={ usp }/>
+}
+
+//递归创建Route
+const createRoute = function createRoute(routes){
+    return(
+    	<>
+        	{routes.map((item, index) => {
+        		let { path, children } = item
+        		return(
+                    <Router key={index} path='/a' element={<Element {...item}/>}>
+        				{ Array.isArray(children)?createRoute(children):null}
+        			</Router>
+                    )
+    		})}
+        </>
+    )
+}
+
+export default function RouterView(){
+    return(
+        <Suspense fallback={<>正在处理中...</>}>
+            <Routes>
+                {createRoute(routes)}
+            </Routes>
+        </Suspense>
+    )
+}
+
+//创建withRouter
+export const withRouter = function withRouter(Componnet){
+    const navigate = useNavigate(),
+          location = useLocation(),
+          params = useParams(),
+          [ usp ] = useSearchParams()
+    return function HOC(props){
+        return<Component {...props} navigate={ navigate } location={ location } params={ params } usp={ usp }>
+    }
+}
+```
+
+```js
+// ./src/router/routes.js
+import { Navigate } from 'react-router-dom'
+import { lazy } from 'react'
+import A from '../views/A'
+//二级路由
+const aRoutes= [
+    {
+        path:'/a',
+        component: ()=> <Navigate to="/a/a1">
+    },
+    {
+        path:'/a/a1',
+        name:'a-a1',''
+        component: lazy(()=> import(/* webpackChunkName: "AChild" */'../views/a/A1'))
+        meta:{}
+    },
+    {
+        path:'/a/a2',
+        name:'a-a2',
+        component: lazy(()=> import(/* webpackChunkName: "AChild" */'../views/a/A2'))
+        meta:{}
+    },
+    {
+        path:'/a/a3',
+        name:'a-a3',
+        component: lazy(()=> import(/* webpackChunkName: "AChild" */'../views/a/A3'))
+        meta:{}
+    }
+]
+//一级路由
+const routes = [
+    {
+        path:'/',
+        component:()=> <Navigate to="/a">
+    },
+    {
+        path:'/a',
+        name:'a',
+        component: A
+        meta:{}
+    	children: aRoutes
+    },
+    {
+        path:'/b',
+        name:'b',
+        component: lazy(()=> import('../views/B'))
+        meta:{}
+    },
+    {
+        path:'/c/:id?/:name?',
+        name:'c',
+        component: lazy(()=> import('../views/C'))
+        meta:{}
+    },
+    {
+        path: '*',
+        component: ()=> <Navigate to={
+            pathname:'/a'
+            search: '?from=404'
+        }>
+    }
+]
+
+export default routes
+```
+
+```jsx
+// ./src/App.jsx
+import React from "react"
+import { HashRouter } from 'react-router-dom'
+import HomeHead from './components/HomeHead'
+import RouterView from './router'
+
+import styled from "styled-components"
+
+/*导航样式*/
+const NavBox = styled.nav`
+	a{
+		margin-right: 10px;
+		color: #000
+	}
+`
+
+const App = function App(){
+    return(
+    	<HashRouter>
+			<HomeHead />
+        	<div className="content">
+				<RouterView />
+        	</div>
+        </HashRouter>
+    )
+}
+
+export default App
+
+//========================================使用useRoutes==============================
+import A from './views/A'
+
+const App = function App(){
+    const element = useRoutes([
+        {
+            path:'/',
+            element: <Navigate to "/a">
+        },{
+            path:'/a',
+            element:<A />,
+            children:[{
+                path:'/a'
+                element: <Navigate to "/a/a1">
+            }]
+        }
+    ])
+    return element
+}
+```
+
+
+
+
+## 七、精品文章
 
 ### 1、`useEffect()` 用法总结
 
@@ -6412,3 +10170,4 @@ jsx 体验AI代码助手 代码解读复制代码function UserProfile({ userId }
 
 当`userId`变化（比如从 1 变成 2）时，副作用会重新执行，请求新的用户数据。这种写法确保 `UI` 能实时响应依赖项的变化。
 
+ 
